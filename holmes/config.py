@@ -253,7 +253,10 @@ class Config(RobustaBaseConfig):
         if self._server_tool_executor:
             return self._server_tool_executor
 
-        toolsets = self.toolset_manager.list_server_toolsets(dal=dal)
+        # toolsets = self.toolset_manager.list_server_toolsets(dal=dal)
+        toolsets = self.toolset_manager.list_console_toolsets(
+            dal=dal, refresh_status=True
+        )
 
         self._server_tool_executor = ToolExecutor(toolsets)
 

@@ -79,7 +79,7 @@ def init_logging():
 init_logging()
 config = Config.load_from_env()
 dal = config.dal
-
+# config.toolset_manager.load_toolset_with_status(dal=dal, refresh_status=True, enable_all_toolsets=True)
 
 def sync_before_server_start():
     try:
@@ -396,4 +396,4 @@ if __name__ == "__main__":
         "%(asctime)s %(levelname)-8s %(message)s"
     )
     sync_before_server_start()
-    uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config)
+    uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config, reload=False)
