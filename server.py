@@ -1,6 +1,8 @@
 # ruff: noqa: E402
 import json
 import os
+import random
+import re
 from typing import List, Optional
 
 import litellm
@@ -23,6 +25,7 @@ import time
 
 from litellm.exceptions import AuthenticationError
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from holmes.utils.stream import stream_investigate_formatter, stream_chat_formatter
 from holmes.common.env_vars import (
@@ -56,6 +59,21 @@ from holmes.core.investigation_structured_output import clear_json_markdown
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.global_instructions import add_global_instructions_to_user_prompt
+
+# AG-UI imports
+from ag_ui.core import (
+    RunAgentInput,
+    EventType,
+    RunStartedEvent,
+    RunFinishedEvent,
+    RunErrorEvent,
+    TextMessageChunkEvent,
+)
+from ag_ui.encoder import EventEncoder
+import uuid
+
+# Store for Prometheus data by random_key
+prometheus_data_store = {}
 
 
 def init_logging():
@@ -119,6 +137,15 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # React app origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 if LOG_PERFORMANCE:
@@ -380,6 +407,477 @@ def chat(chat_request: ChatRequest):
     except Exception as e:
         logging.error(f"Error in /api/chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/prometheus-keys")
+async def list_prometheus_keys():
+    """List all stored Prometheus data keys"""
+    return {"keys": list(prometheus_data_store.keys()), "count": len(prometheus_data_store)}
+
+
+@app.get("/api/prometheus-data/{random_key}")
+async def get_prometheus_data(random_key: str):
+    """Get stored Prometheus data by random key"""
+    logging.info(f"Requested key: {random_key}")
+    logging.info(f"Available keys: {list(prometheus_data_store.keys())}")
+    
+    if random_key in prometheus_data_store:
+        logging.info(f"Found data for key: {random_key}")
+        return prometheus_data_store[random_key]
+    else:
+        logging.warning(f"No data found for key: {random_key}")
+        raise HTTPException(status_code=404, detail="Prometheus data not found")
+
+
+@app.post("/api/agui/chat")
+async def agui_chat_endpoint(input_data: RunAgentInput, request: Request):
+    """AG-UI compatible chat endpoint"""
+    accept_header = request.headers.get("accept")
+    encoder = EventEncoder(accept=accept_header)
+
+    async def event_generator():
+        try:
+            # Send start event
+            yield encoder.encode(
+                RunStartedEvent(
+                    type=EventType.RUN_STARTED,
+                    thread_id=input_data.thread_id,
+                    run_id=input_data.run_id
+                )
+            )
+
+            # Convert AG-UI input to ChatRequest format
+            user_messages = [msg for msg in input_data.messages if msg.role in ['user', 'assistant']]
+            
+            # Build conversation history with system message if there are previous messages
+            conversation_history = None
+            if len(user_messages) > 1:
+                conversation_history = [
+                    {"role": "system", "content": "You are Holmes, an AI assistant for observability. You use Prometheus metrics, alerts and OpenSearch logs to quickly perform root cause analysis."}
+                ]
+                conversation_history.extend([
+                    {"role": msg.role, "content": msg.content}
+                    for msg in user_messages[:-1]
+                ])
+            
+            chat_request = ChatRequest(
+                ask=user_messages[-1].content if user_messages and user_messages[-1].role == 'user' else "",
+                conversation_history=conversation_history,
+                model=getattr(input_data, 'model', None),
+                stream=True
+            )
+
+            # Use existing chat logic
+            ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
+            global_instructions = dal.get_global_instructions_for_account()
+            messages = build_chat_messages(
+                chat_request.ask,
+                chat_request.conversation_history,
+                ai=ai,
+                config=config,
+                global_instructions=global_instructions,
+            )
+
+            message_id = str(uuid.uuid4())
+            
+            # Get the streaming response and handle it properly
+            try:
+                stream_response = ai.call_stream(msgs=messages)
+                response_content = ""
+                
+                # Process all chunks and stream ALL events
+                for chunk in stream_response:
+                    if hasattr(chunk, 'event'):
+                        event_type = chunk.event.value if hasattr(chunk.event, 'value') else str(chunk.event)
+                        logging.info(f"Streaming chunk: {event_type}")
+                    else:
+                        event_type = 'unknown'
+                        logging.info(f"Streaming chunk: {chunk}")
+                    
+                    if hasattr(chunk, 'event') and hasattr(chunk, 'data'):
+                        # Handle ALL Holmes streaming events
+                        if event_type == 'start_tool_calling':
+                            tool_info = chunk.data.get('tool_name', 'Unknown Tool')
+                            yield encoder.encode(
+                                TextMessageChunkEvent(
+                                    type=EventType.TEXT_MESSAGE_CHUNK,
+                                    message_id=message_id,
+                                    delta=f"\n🔧 **Starting:** {tool_info} `[{event_type}]`\n",
+                                )
+                            )
+                        
+                        elif event_type == 'tool_calling_result':
+                            tool_name = chunk.data.get('tool_name', chunk.data.get('name', 'Tool'))
+                            duration = chunk.data.get('duration', 0)
+                            
+                            # Get the actual tool result - it's in 'result' field, not 'output'
+                            result_info = chunk.data.get('result', {})
+                            
+                            # Extract the actual data from the structured result
+                            if isinstance(result_info, dict) and 'data' in result_info:
+                                try:
+                                    # The data might be a JSON string
+                                    data_content = result_info['data']
+                                    if isinstance(data_content, str):
+                                        output_info = json.loads(data_content)
+                                    else:
+                                        output_info = data_content
+                                except (json.JSONDecodeError, TypeError):
+                                    output_info = result_info['data']
+                            else:
+                                output_info = result_info
+                            
+                            output_length = len(str(output_info))
+                            
+                            # Debug logging
+                            logging.info(f"Tool result type: {type(result_info)}")
+                            logging.info(f"Extracted output length: {output_length}")
+                            logging.info(f"Output preview: {str(output_info)[:200]}...")
+                            
+                            # Show the actual tool output to user
+                            output_preview = str(output_info)[:500] + "..." if len(str(output_info)) > 500 else str(output_info)
+                            yield encoder.encode(
+                                TextMessageChunkEvent(
+                                    type=EventType.TEXT_MESSAGE_CHUNK,
+                                    message_id=message_id,
+                                    delta=f"\n📄 **Tool Output ({output_length} chars):**\n```\n{output_preview}\n```\n",
+                                )
+                            )
+                            
+                            # Extract random_key from tool output if it exists (Holmes generates these)
+                            random_key = None
+                            if isinstance(output_info, dict):
+                                if 'random_key' in output_info:
+                                    random_key = output_info['random_key']
+                                    logging.info(f"Found random_key in output_info: {random_key}")
+                                elif 'data' in output_info and isinstance(output_info['data'], dict) and 'random_key' in output_info['data']:
+                                    random_key = output_info['data']['random_key']
+                                    logging.info(f"Found random_key in output_info.data: {random_key}")
+                            elif isinstance(output_info, str) and 'random_key' in output_info:
+                                # Try to extract from string output
+                                key_match = re.search(r'"random_key":\s*"([^"]+)"', output_info)
+                                if key_match:
+                                    random_key = key_match.group(1)
+                                    logging.info(f"Extracted random_key from string: {random_key}")
+                            
+                            if not random_key:
+                                logging.warning(f"No random_key found in tool output. Tool: {tool_name}")
+                                logging.warning(f"Output preview: {str(output_info)[:200]}...")
+                            
+                            # Check if this is a Prometheus query with actual data
+                            if ('prometheus' in tool_name.lower() or 'get_metric' in tool_name.lower() or 'execute_prometheus' in tool_name.lower()) and output_info:
+                                try:
+                                    prom_data = None
+                                    
+                                    # Handle different Prometheus response formats
+                                    if isinstance(output_info, dict):
+                                        if 'data' in output_info and 'result' in output_info['data']:
+                                            # This is the actual Prometheus response format
+                                            result_data = output_info['data']['result']
+                                            if isinstance(result_data, list) and len(result_data) > 0:
+                                                # Convert instant query results to range format for graphing
+                                                for item in result_data:
+                                                    if 'value' in item and 'values' not in item:
+                                                        # Instant query: convert single value to values array
+                                                        item['values'] = [item['value']]
+                                                        del item['value']
+                                            prom_data = {'data': output_info['data']}
+                                        elif 'result' in output_info:
+                                            # Direct result format
+                                            result_data = output_info['result']
+                                            if isinstance(result_data, list) and len(result_data) > 0:
+                                                # Convert instant query results to range format for graphing
+                                                for item in result_data:
+                                                    if 'value' in item and 'values' not in item:
+                                                        # Instant query: convert single value to values array
+                                                        item['values'] = [item['value']]
+                                                        del item['value']
+                                            prom_data = {'data': output_info}
+                                        # Skip metric name lists - they don't have actual query data to graph
+                                        elif 'data' in output_info and isinstance(output_info['data'], list):
+                                            logging.info(f"Skipping metric names list for tool: {tool_name}")
+                                            prom_data = None
+                                        elif isinstance(output_info, list):
+                                            # Direct result array
+                                            prom_data = {'data': {'result': output_info}}
+                                    
+                                    logging.info(f"Processed Prometheus data structure: {type(prom_data.get('data', {}).get('result', []) if prom_data else None)} with {len(prom_data.get('data', {}).get('result', []) if prom_data else [])} items")
+                                    
+                                    if prom_data and prom_data.get('data', {}).get('result'):
+                                        # Extract the actual query from the output if available
+                                        actual_query = output_info.get('query', f'Query from {tool_name}')
+                                        
+                                        graph_data = {
+                                            'type': 'prometheus_graph',
+                                            'tool_name': tool_name,
+                                            'query': actual_query,
+                                            'data': prom_data['data'],
+                                            'metadata': {
+                                                'start_time': '2025-09-16T15:00:00Z',
+                                                'end_time': '2025-09-16T15:30:00Z',
+                                                'step': '60s'
+                                            }
+                                        }
+                                        
+                                        # Store data with both generated key and tool name for fallback matching
+                                        if not random_key:
+                                            random_key = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=4))
+                                        
+                                        prometheus_data_store[random_key] = graph_data
+                                        
+                                        # Also store by tool name as fallback
+                                        tool_key = f"{tool_name}_{len(prometheus_data_store)}"
+                                        prometheus_data_store[tool_key] = graph_data
+                                        
+                                        logging.info(f"Stored Prometheus data with key: {random_key} and tool_key: {tool_key}")
+                                        logging.info(f"Sending Prometheus graph data with {len(prom_data['data']['result'])} series")
+                                        
+                                        yield encoder.encode(
+                                            TextMessageChunkEvent(
+                                                type=EventType.TEXT_MESSAGE_CHUNK,
+                                                message_id=message_id,
+                                                delta=f"\n📊 **GRAPH_DATA:** ```json\n{json.dumps(graph_data, indent=2)}\n```\n",
+                                            )
+                                        )
+                                    else:
+                                        logging.info(f"No graphable data found in Prometheus output")
+                                        
+                                except Exception as e:
+                                    logging.error(f"Error processing Prometheus data: {e}")
+                            
+                            yield encoder.encode(
+                                TextMessageChunkEvent(
+                                    type=EventType.TEXT_MESSAGE_CHUNK,
+                                    message_id=message_id,
+                                    delta=f"✅ **Completed:** {tool_name} ({duration:.2f}s, {output_length} chars) `[{event_type}]`\n",
+                                )
+                            )
+                            # Check if this is a Prometheus query - be more flexible with detection
+                            if ('prometheus' in tool_name.lower() or 'execute_prometheus' in tool_name.lower()) and output_info:
+                                try:
+                                    # Try different possible data structures
+                                    graph_data_found = False
+                                    prom_data = None
+                                    
+                                    # If output is a string, try to parse as JSON
+                                    if isinstance(output_info, str):
+                                        try:
+                                            parsed_output = json.loads(output_info)
+                                            logging.info(f"Parsed JSON output keys: {list(parsed_output.keys()) if isinstance(parsed_output, dict) else 'Not a dict'}")
+                                            output_info = parsed_output
+                                        except json.JSONDecodeError:
+                                            logging.info(f"Output is not JSON, treating as raw string: {output_info[:200]}...")
+                                            # Could be raw Prometheus data or error message
+                                            if 'result' not in output_info.lower() and 'metric' not in output_info.lower():
+                                                logging.warning(f"Prometheus output doesn't look like data: {output_info[:100]}...")
+                                                output_info = None
+                                    
+                                    # Check if output_info now has the data
+                                    if isinstance(output_info, dict):
+                                        # Look for common Prometheus response patterns
+                                        if 'data' in output_info and 'result' in output_info.get('data', {}):
+                                            prom_data = output_info
+                                        elif 'result' in output_info:
+                                            prom_data = {'data': output_info}
+                                        elif 'values' in str(output_info) or 'metric' in str(output_info):
+                                            # Raw result format
+                                            prom_data = {'data': {'result': output_info if isinstance(output_info, list) else [output_info]}}
+                                        
+                                        if prom_data:
+                                            graph_data = {
+                                                'type': 'prometheus_graph',
+                                                'tool_name': tool_name,
+                                                'query': prom_data.get('query', 'Prometheus Query'),
+                                                'data': prom_data.get('data', {}),
+                                                'metadata': {
+                                                    'start_time': prom_data.get('start_time'),
+                                                    'end_time': prom_data.get('end_time'),
+                                                    'step': prom_data.get('step')
+                                                }
+                                            }
+                                            
+                                            logging.info(f"Sending Prometheus graph data with {len(prom_data.get('data', {}).get('result', []))} series")
+                                            
+                                            yield encoder.encode(
+                                                TextMessageChunkEvent(
+                                                    type=EventType.TEXT_MESSAGE_CHUNK,
+                                                    message_id=message_id,
+                                                    delta=f"\n📊 **GRAPH_DATA:** ```json\n{json.dumps(graph_data, indent=2)}\n```\n",
+                                                )
+                                            )
+                                            graph_data_found = True
+                                    
+                                    if not graph_data_found:
+                                        logging.warning(f"Prometheus tool detected but no graph data found. Output: {str(output_info)[:200] if output_info else 'None'}...")
+                                        
+                                except Exception as e:
+                                    logging.error(f"Error processing Prometheus data: {e}")
+                                    logging.error(f"Raw output was: {str(output_info)[:200]}...")
+                            
+                            yield encoder.encode(
+                                TextMessageChunkEvent(
+                                    type=EventType.TEXT_MESSAGE_CHUNK,
+                                    message_id=message_id,
+                                    delta=f"✅ **Completed:** {tool_name} ({duration:.2f}s, {output_length} chars)\n",
+                                )
+                            )
+                        
+                        elif event_type == 'ai_message':
+                            # This might contain the final response
+                            content = chunk.data.get('content', '')
+                            if content:
+                                yield encoder.encode(
+                                    TextMessageChunkEvent(
+                                        type=EventType.TEXT_MESSAGE_CHUNK,
+                                        message_id=message_id,
+                                        delta=f"\n📋 **Analysis:** `[{event_type}]`\n{content}\n",
+                                    )
+                                )
+                                response_content = content
+                        
+                        elif event_type == 'ai_answer_end':
+                            # Handle the final AI response
+                            content = chunk.data.get('content', '')
+                            if content:
+                                # Look for Holmes promql embeddings and replace with real data
+                                def replace_embedding(match):
+                                    try:
+                                        embed_data = json.loads(match.group(1))
+                                        random_key = embed_data.get('random_key')
+                                        tool_name_embed = embed_data.get('tool_name', '')
+                                        
+                                        # First try exact random_key match
+                                        if random_key and random_key in prometheus_data_store:
+                                            real_graph_data = prometheus_data_store[random_key]
+                                            return f"\n📊 **GRAPH_DATA:** ```json\n{json.dumps(real_graph_data, indent=2)}\n```\n"
+                                        
+                                        # Fallback: try to match by tool name
+                                        if tool_name_embed:
+                                            for stored_key, stored_data in prometheus_data_store.items():
+                                                if tool_name_embed in stored_key or tool_name_embed in stored_data.get('tool_name', ''):
+                                                    logging.info(f"Matched embedding by tool name: {tool_name_embed} -> {stored_key}")
+                                                    return f"\n📊 **GRAPH_DATA:** ```json\n{json.dumps(stored_data, indent=2)}\n```\n"
+                                        
+                                        # Final fallback: return the most recent Prometheus data
+                                        if prometheus_data_store:
+                                            # Get the last stored data (most recent)
+                                            last_key = list(prometheus_data_store.keys())[-1]
+                                            last_data = prometheus_data_store[last_key]
+                                            # Only use if it has actual graph data
+                                            if last_data.get('data', {}).get('result'):
+                                                logging.info(f"Using most recent Prometheus data as fallback: {last_key}")
+                                                return f"\n📊 **GRAPH_DATA:** ```json\n{json.dumps(last_data, indent=2)}\n```\n"
+                                        
+                                        logging.warning(f"No data found for random_key: {random_key}, tool: {tool_name_embed}")
+                                        logging.warning(f"Available keys: {list(prometheus_data_store.keys())}")
+                                        return f"[Graph data not available for key: {random_key}]"
+                                    except Exception as e:
+                                        logging.error(f"Error processing embedding: {e}")
+                                        return match.group(0)
+                                
+                                # Replace Holmes embeddings with real graph data
+                                embedding_pattern = r'<<\s*(\{[^}]*"type"\s*:\s*"promql"[^}]*\})\s*>>'
+                                processed_content = re.sub(embedding_pattern, replace_embedding, content)
+                                
+                                yield encoder.encode(
+                                    TextMessageChunkEvent(
+                                        type=EventType.TEXT_MESSAGE_CHUNK,
+                                        message_id=message_id,
+                                        delta=f"\n📋 **Final Analysis:** `[{event_type}]`\n{processed_content}\n",
+                                    )
+                                )
+                                response_content = processed_content
+                        
+                        # Catch any other events and show them
+                        else:
+                            event_data = str(chunk.data)[:200] + "..." if len(str(chunk.data)) > 200 else str(chunk.data)
+                            
+                            # Check if this is a task update
+                            if 'task' in event_type.lower() or ('content' in chunk.data and 'status' in str(chunk.data)):
+                                try:
+                                    # Try to extract task information
+                                    if isinstance(chunk.data, dict) and 'todos' in chunk.data:
+                                        tasks = chunk.data['todos']
+                                        task_data = {
+                                            'type': 'task_update',
+                                            'tasks': tasks
+                                        }
+                                        yield encoder.encode(
+                                            TextMessageChunkEvent(
+                                                type=EventType.TEXT_MESSAGE_CHUNK,
+                                                message_id=message_id,
+                                                delta=f"\n📋 **TASK_UPDATE:** ```json\n{json.dumps(task_data, indent=2)}\n```\n",
+                                            )
+                                        )
+                                    else:
+                                        # Regular event display
+                                        yield encoder.encode(
+                                            TextMessageChunkEvent(
+                                                type=EventType.TEXT_MESSAGE_CHUNK,
+                                                message_id=message_id,
+                                                delta=f"\n🔍 **{event_type}:** {event_data} `[{event_type}]`\n",
+                                            )
+                                        )
+                                except Exception as e:
+                                    logging.error(f"Error processing task data: {e}")
+                                    yield encoder.encode(
+                                        TextMessageChunkEvent(
+                                            type=EventType.TEXT_MESSAGE_CHUNK,
+                                            message_id=message_id,
+                                            delta=f"\n🔍 **{event_type}:** {event_data}\n",
+                                        )
+                                    )
+                            else:
+                                yield encoder.encode(
+                                    TextMessageChunkEvent(
+                                        type=EventType.TEXT_MESSAGE_CHUNK,
+                                        message_id=message_id,
+                                        delta=f"\n🔍 **{event_type}:** {event_data} `[{event_type}]`\n",
+                                    )
+                                )
+                
+                # Fallback if no content was streamed
+                if not response_content:
+                    yield encoder.encode(
+                        TextMessageChunkEvent(
+                            type=EventType.TEXT_MESSAGE_CHUNK,
+                            message_id=message_id,
+                            delta="\n✨ Ready to help with your observability questions!",
+                        )
+                    )
+                    
+            except Exception as ai_error:
+                logging.error(f"AI streaming error: {ai_error}", exc_info=True)
+                yield encoder.encode(
+                    TextMessageChunkEvent(
+                        type=EventType.TEXT_MESSAGE_CHUNK,
+                        message_id=message_id,
+                        delta=f"Error processing request: {str(ai_error)}",
+                    )
+                )
+
+            # Send finish event
+            yield encoder.encode(
+                RunFinishedEvent(
+                    type=EventType.RUN_FINISHED,
+                    thread_id=input_data.thread_id,
+                    run_id=input_data.run_id
+                )
+            )
+
+        except Exception as error:
+            logging.error(f"Error in /api/agui/chat: {error}", exc_info=True)
+            yield encoder.encode(
+                RunErrorEvent(
+                    type=EventType.RUN_ERROR,
+                    message=str(error)
+                )
+            )
+
+    return StreamingResponse(
+        event_generator(),
+        media_type=encoder.get_content_type()
+    )
 
 
 @app.get("/api/model")

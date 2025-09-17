@@ -43,7 +43,7 @@ PROMETHEUS_METADATA_API_LIMIT = 100  # Default limit for Prometheus metadata API
 DEFAULT_QUERY_TIMEOUT_SECONDS = 20
 MAX_QUERY_TIMEOUT_SECONDS = 180
 # Default character limit for query responses to prevent token limit issues
-DEFAULT_QUERY_RESPONSE_SIZE_LIMIT = 30000
+DEFAULT_QUERY_RESPONSE_SIZE_LIMIT = 300000
 # Default timeout for metadata API calls (discovery endpoints)
 DEFAULT_METADATA_TIMEOUT_SECONDS = 20
 MAX_METADATA_TIMEOUT_SECONDS = 60
