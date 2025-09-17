@@ -216,11 +216,60 @@ function App() {
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          position: 'top',
+          position: 'bottom',
+          align: 'start',
+          maxHeight: 80,
+          labels: {
+            usePointStyle: true,
+            pointStyle: 'rect',
+            boxWidth: 12,
+            boxHeight: 12,
+            padding: 8,
+            textAlign: 'left'
+          },
+          onClick: (e, legendItem, legend) => {
+            const chart = legend.chart;
+            const index = legendItem.datasetIndex;
+            
+            if (e.metaKey || e.ctrlKey) {
+              // CMD/Ctrl+click: Show only this dataset, hide all others
+              chart.data.datasets.forEach((dataset, i) => {
+                const meta = chart.getDatasetMeta(i);
+                meta.hidden = i !== index;
+              });
+            } else {
+              // Regular click: Toggle this dataset
+              const meta = chart.getDatasetMeta(index);
+              meta.hidden = meta.hidden === null ? !chart.data.datasets[index].hidden : null;
+            }
+            
+            chart.update();
+          }
+        },
+        tooltip: {
+          callbacks: {
+            title: function(context) {
+              return new Date(context[0].parsed.x).toLocaleString();
+            },
+            label: function(context) {
+              const label = context.dataset.label || '';
+              const value = context.parsed.y;
+              
+              // If label is longer than 50 characters, organize vertically
+              if (label.length > 50) {
+                const parts = label.split(', ');
+                return [`Value: ${value}`, ...parts];
+              }
+              
+              return `${label}: ${value}`;
+            }
+          },
+          displayColors: true,
+          multiKeyBackground: '#fff'
         },
         title: {
           display: true,
-          text: `${query || 'Prometheus Query Result'} - ${dateRange}`
+          text: query || 'Prometheus Query Result'
         },
       },
       scales: {
@@ -235,13 +284,26 @@ function App() {
             tooltipFormat: 'MMM dd, yyyy HH:mm:ss z'
           },
           ticks: {
-            callback: function(value) {
-              // Always show just time
-              return new Date(value).toLocaleString('en-US', {
+            callback: function(value, index) {
+              const date = new Date(value);
+              const time = date.toLocaleString('en-US', {
                 hour: '2-digit',
                 minute: '2-digit'
               });
-            }
+              
+              // Show date only on first tick
+              if (index === 0) {
+                const dateStr = date.toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric'
+                });
+                return [time, dateStr];
+              }
+              
+              return time;
+            },
+            maxRotation: 0
           },
           title: {
             display: true,
@@ -273,9 +335,14 @@ function App() {
           backgroundColor: 'white', 
           borderRadius: '8px',
           border: '1px solid #ddd',
-          height: '500px',
-          width: '100%',
-          position: 'relative'
+          height: '400px',
+          width: '750px',
+          minWidth: '500px',
+          maxWidth: '100%',
+          position: 'relative',
+          overflow: 'hidden',
+          boxSizing: 'border-box',
+          display: 'block'
         }}
       >
         {/* Prometheus UI Link Button */}
@@ -322,7 +389,12 @@ function App() {
             height: '100%',
             cursor: 'pointer'
           }}
-          onClick={() => setMaximizedGraph({ data: chartData, options, title: query || 'Prometheus Query Result', dateRange, prometheusUrl })}
+          onClick={(e) => {
+            // Don't maximize if clicking on legend area
+            if (e.target.closest('canvas')) {
+              setMaximizedGraph({ data: chartData, options, title: query || 'Prometheus Query Result', dateRange, prometheusUrl });
+            }
+          }}
           title="Click to maximize"
         >
           <Line 
@@ -339,6 +411,18 @@ function App() {
   useEffect(() => {
     threadIdRef.current = `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }, []);
+
+  // Handle ESC key to close maximized graph
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && maximizedGraph) {
+        setMaximizedGraph(null);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [maximizedGraph]);
 
   // Handle keyboard navigation for message history
   const handleKeyDown = (e) => {
@@ -594,7 +678,7 @@ function App() {
             >
               🔥 Open in Prometheus
             </button>
-            <h3 style={{ margin: '0 0 20px 0' }}>{maximizedGraph.title} - {maximizedGraph.dateRange}</h3>
+            <h3 style={{ margin: '0 0 20px 0' }}>{maximizedGraph.title}</h3>
             <div style={{ height: 'calc(100% - 60px)' }}>
               <Line 
                 data={maximizedGraph.data} 
@@ -714,11 +798,11 @@ function App() {
                 padding: '12px 16px',
                 borderRadius: '6px',
                 background: msg.sender === 'user' ? '#e3eff8' : 
-                           msg.sender === 'system' ? '#bd271e' : 'linear-gradient(135deg, #f1e7fe 0%, #ecf4ff 100%)',
+                           msg.sender === 'system' ? '#bd271e' : 'linear-gradient(135deg, #ecf4ff 0%, #f1e7fe 100%)',
                 border: msg.sender === 'user' ? '1px solid #0268bc' : 
                         msg.sender === 'system' ? 'none' : '1px solid #9435b5',
                 color: msg.sender === 'system' ? '#ffffff' : '#343741',
-                maxWidth: '70%',
+                maxWidth: msg.text.includes('📊 **GRAPH_DATA:**') ? '95%' : '70%',
                 wordWrap: 'break-word',
                 boxShadow: '0 2px 2px -1px rgba(152, 162, 179, 0.3), 0 1px 5px -2px rgba(152, 162, 179, 0.3)'
               }}>
