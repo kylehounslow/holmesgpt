@@ -510,7 +510,10 @@ function App() {
       margin: '0 auto', 
       padding: '20px',
       boxSizing: 'border-box',
-      gap: '20px'
+      gap: '20px',
+      backgroundColor: '#f7f8fa',
+      fontFamily: '"Inter UI", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+      color: '#343741'
     }}>
       {/* Maximized Graph Modal */}
       {maximizedGraph && (
@@ -614,12 +617,13 @@ function App() {
           display: 'flex',
           flexDirection: 'column'
         }}>
-          <h3 style={{ margin: '0 0 10px 0' }}>Investigation Tasks</h3>
+          <h3 style={{ margin: '0 0 16px 0', color: '#343741', fontSize: '16px', fontWeight: '600' }}>Investigation Tasks</h3>
           <div style={{
-            border: '1px solid #ccc',
-            borderRadius: '8px',
-            padding: '10px',
-            backgroundColor: '#f9f9f9',
+            border: '1px solid #d3dae6',
+            borderRadius: '6px',
+            padding: '16px',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 2px 2px -1px rgba(152, 162, 179, 0.3), 0 1px 5px -2px rgba(152, 162, 179, 0.3)',
             flex: 1,
             overflowY: 'auto'
           }}>
@@ -676,17 +680,28 @@ function App() {
         flex: 1,
         display: 'flex', 
         flexDirection: 'column',
-        minWidth: 0
+        minWidth: 0,
+        backgroundColor: '#ffffff',
+        borderRadius: '6px',
+        border: '1px solid #d3dae6',
+        boxShadow: '0 2px 2px -1px rgba(152, 162, 179, 0.3), 0 1px 5px -2px rgba(152, 162, 179, 0.3)',
+        overflow: 'hidden'
       }}>
-        <h1 style={{ margin: '0 0 20px 0', flexShrink: 0 }}>Holmes GPT Chat (AG-UI)</h1>
+        <h1 style={{ 
+          margin: '0', 
+          padding: '20px 20px 16px 20px',
+          flexShrink: 0, 
+          color: '#343741', 
+          fontSize: '24px', 
+          fontWeight: '600',
+          borderBottom: '1px solid #d3dae6'
+        }}>Holmes GPT Chat (AG-UI compatible)</h1>
         
         <div style={{ 
           flex: 1,
           overflowY: 'auto', 
-          border: '1px solid #ccc', 
-          padding: '10px',
-          marginBottom: '10px',
-          backgroundColor: '#f9f9f9',
+          padding: '16px 20px',
+          backgroundColor: '#f7f8fa',
           minHeight: 0
         }}>
           {messages.map((msg, index) => (
@@ -696,13 +711,16 @@ function App() {
             }}>
               <div style={{
                 display: 'inline-block',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                backgroundColor: msg.sender === 'user' ? '#007bff' : 
-                               msg.sender === 'system' ? '#dc3545' : '#28a745',
-                color: 'white',
+                padding: '12px 16px',
+                borderRadius: '6px',
+                background: msg.sender === 'user' ? '#e3eff8' : 
+                           msg.sender === 'system' ? '#bd271e' : 'linear-gradient(135deg, #f1e7fe 0%, #ecf4ff 100%)',
+                border: msg.sender === 'user' ? '1px solid #0268bc' : 
+                        msg.sender === 'system' ? 'none' : '1px solid #9435b5',
+                color: msg.sender === 'system' ? '#ffffff' : '#343741',
                 maxWidth: '70%',
-                wordWrap: 'break-word'
+                wordWrap: 'break-word',
+                boxShadow: '0 2px 2px -1px rgba(152, 162, 179, 0.3), 0 1px 5px -2px rgba(152, 162, 179, 0.3)'
               }}>
                 <strong>{msg.sender}:</strong>{' '}
                 {msg.sender === 'user' ? (
@@ -717,8 +735,8 @@ function App() {
                               p: ({children}) => <span>{children}</span>,
                               strong: ({children}) => <strong style={{fontWeight: 'bold'}}>{children}</strong>,
                               em: ({children}) => <em style={{fontStyle: 'italic'}}>{children}</em>,
-                              code: ({children}) => <code style={{backgroundColor: 'rgba(0,0,0,0.2)', padding: '2px 4px', borderRadius: '3px'}}>{children}</code>,
-                              pre: ({children}) => <pre style={{backgroundColor: 'rgba(0,0,0,0.2)', padding: '8px', borderRadius: '4px', overflow: 'auto'}}>{children}</pre>
+                              code: ({children}) => <code style={{backgroundColor: 'rgba(0,0,0,0.1)', color: '#0268bc', padding: '2px 4px', borderRadius: '3px', fontWeight: '500'}}>{children}</code>,
+                              pre: ({children}) => <pre style={{backgroundColor: 'rgba(0,0,0,0.1)', color: '#0268bc', padding: '8px', borderRadius: '4px', overflow: 'auto', fontWeight: '500'}}>{children}</pre>
                             }}
                           >
                             {part.content}
@@ -741,7 +759,14 @@ function App() {
           <div ref={messagesEndRef} />
         </div>
         
-        <div style={{ display: 'flex', gap: '10px', flexShrink: 0 }}>
+        <div style={{ 
+          display: 'flex', 
+          gap: '8px', 
+          flexShrink: 0,
+          padding: '16px 20px',
+          borderTop: '1px solid #d3dae6',
+          backgroundColor: '#ffffff'
+        }}>
           <input
             type="text"
             value={input}
@@ -751,23 +776,31 @@ function App() {
             disabled={isLoading}
             style={{ 
               flex: 1, 
-              padding: '10px', 
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-              minWidth: 0
+              padding: '12px 16px', 
+              border: '1px solid #d3dae6',
+              borderRadius: '6px',
+              minWidth: 0,
+              fontSize: '14px',
+              fontFamily: 'inherit',
+              backgroundColor: '#ffffff',
+              color: '#343741',
+              outline: 'none'
             }}
           />
           <button 
             onClick={sendMessage}
             disabled={isLoading || !input.trim()}
             style={{
-              padding: '10px 20px',
-              backgroundColor: '#007bff',
-              color: 'white',
+              padding: '12px 24px',
+              backgroundColor: isLoading || !input.trim() ? '#98a2b3' : '#006bb4',
+              color: '#ffffff',
               border: 'none',
-              borderRadius: '4px',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              flexShrink: 0
+              borderRadius: '6px',
+              cursor: isLoading || !input.trim() ? 'not-allowed' : 'pointer',
+              flexShrink: 0,
+              fontSize: '14px',
+              fontWeight: '500',
+              fontFamily: 'inherit'
             }}
           >
             {isLoading ? 'Sending...' : 'Send'}
