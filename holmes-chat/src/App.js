@@ -33,6 +33,8 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [tasks, setTasks] = useState([]);
   const [maximizedGraph, setMaximizedGraph] = useState(null);
+  const [messageHistory, setMessageHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
   const threadIdRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -338,10 +340,45 @@ function App() {
     threadIdRef.current = `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }, []);
 
+  // Handle keyboard navigation for message history
+  const handleKeyDown = (e) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (messageHistory.length > 0) {
+        const newIndex = historyIndex === -1 ? messageHistory.length - 1 : Math.max(0, historyIndex - 1);
+        setHistoryIndex(newIndex);
+        setInput(messageHistory[newIndex]);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (historyIndex >= 0) {
+        const newIndex = historyIndex + 1;
+        if (newIndex >= messageHistory.length) {
+          setHistoryIndex(-1);
+          setInput('');
+        } else {
+          setHistoryIndex(newIndex);
+          setInput(messageHistory[newIndex]);
+        }
+      }
+    } else if (e.key === 'Enter') {
+      sendMessage();
+    }
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
 
     const userMessage = input.trim();
+    
+    // Add to message history
+    setMessageHistory(prev => {
+      const newHistory = [...prev, userMessage];
+      // Keep only last 50 messages
+      return newHistory.slice(-50);
+    });
+    setHistoryIndex(-1);
+    
     setInput('');
     setIsLoading(true);
 
@@ -709,7 +746,7 @@ function App() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+            onKeyDown={handleKeyDown}
             placeholder="Ask Holmes a question..."
             disabled={isLoading}
             style={{ 

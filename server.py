@@ -603,6 +603,7 @@ async def agui_chat_endpoint(input_data: RunAgentInput, request: Request):
                                     
                                     logging.info(f"Processed Prometheus data structure: {type(prom_data.get('data', {}).get('result', []) if prom_data else None)} with {len(prom_data.get('data', {}).get('result', []) if prom_data else [])} items")
                                     
+                                    # Only create graph if we have actual prometheus data
                                     if prom_data and prom_data.get('data', {}).get('result'):
                                         # Extract the actual query from the output if available
                                         actual_query = output_info.get('query', f'Query from {tool_name}')
@@ -640,7 +641,7 @@ async def agui_chat_endpoint(input_data: RunAgentInput, request: Request):
                                             )
                                         )
                                     else:
-                                        logging.info(f"No graphable data found in Prometheus output")
+                                        logging.info(f"No graphable data found in Prometheus output for tool: {tool_name}")
                                         
                                 except Exception as e:
                                     logging.error(f"Error processing Prometheus data: {e}")
@@ -739,6 +740,9 @@ async def agui_chat_endpoint(input_data: RunAgentInput, request: Request):
                             # Handle the final AI response
                             content = chunk.data.get('content', '')
                             if content:
+                                logging.info(f"Processing ai_answer_end content with {len(content)} characters")
+                                logging.info(f"Available Prometheus keys: {list(prometheus_data_store.keys())}")
+                                
                                 # Look for Holmes promql embeddings and replace with real data
                                 def replace_embedding(match):
                                     try:
@@ -746,9 +750,12 @@ async def agui_chat_endpoint(input_data: RunAgentInput, request: Request):
                                         random_key = embed_data.get('random_key')
                                         tool_name_embed = embed_data.get('tool_name', '')
                                         
+                                        logging.info(f"Processing embedding: key={random_key}, tool={tool_name_embed}")
+                                        
                                         # First try exact random_key match
                                         if random_key and random_key in prometheus_data_store:
                                             real_graph_data = prometheus_data_store[random_key]
+                                            logging.info(f"Found exact match for key: {random_key}")
                                             return f"\n📊 **GRAPH_DATA:** ```json\n{json.dumps(real_graph_data, indent=2)}\n```\n"
                                         
                                         # Fallback: try to match by tool name
@@ -778,6 +785,8 @@ async def agui_chat_endpoint(input_data: RunAgentInput, request: Request):
                                 # Replace Holmes embeddings with real graph data
                                 embedding_pattern = r'<<\s*(\{[^}]*"type"\s*:\s*"promql"[^}]*\})\s*>>'
                                 processed_content = re.sub(embedding_pattern, replace_embedding, content)
+                                
+                                logging.info(f"Processed content length: {len(processed_content)} (original: {len(content)})")
                                 
                                 yield encoder.encode(
                                     TextMessageChunkEvent(
