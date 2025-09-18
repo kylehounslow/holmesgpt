@@ -15,6 +15,8 @@ import {
 import 'chartjs-adapter-date-fns';
 import './App.css';
 
+const HOLMES_BASE_URL = 'http://localhost:5050';
+
 // Register Chart.js components
 ChartJS.register(
   CategoryScale,
@@ -33,8 +35,11 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [tasks, setTasks] = useState([]);
   const [maximizedGraph, setMaximizedGraph] = useState(null);
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState(null);
   const [messageHistory, setMessageHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [connectionStatus, setConnectionStatus] = useState('checking');
+  const [currentModel, setCurrentModel] = useState(null);
   const threadIdRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -47,12 +52,75 @@ function App() {
     scrollToBottom();
   }, [messages]);
 
+  // Check connection status and model
+  const checkConnectionStatus = async () => {
+    try {
+      // Check health endpoint
+      const healthResponse = await fetch(`${HOLMES_BASE_URL}/health`, {
+        method: 'GET',
+        timeout: 5000
+      });
+      
+      if (healthResponse.ok) {
+        setConnectionStatus('connected');
+        
+        // Get current model if healthy
+        try {
+          const modelResponse = await fetch(`${HOLMES_BASE_URL}/api/model`, {
+            method: 'GET',
+            timeout: 5000
+          });
+          
+          if (modelResponse.ok) {
+            const modelData = await modelResponse.json();
+            
+            // Parse the model_name which comes as a JSON string array
+            let modelName = 'Unknown';
+            if (modelData.model_name) {
+              try {
+                // Parse the JSON string to get the array
+                const modelArray = JSON.parse(modelData.model_name);
+                if (Array.isArray(modelArray) && modelArray.length > 0) {
+                  modelName = modelArray[0];
+                }
+              } catch (parseError) {
+                console.warn('Could not parse model_name:', parseError);
+                // Fallback to raw model_name if parsing fails
+                modelName = modelData.model_name;
+              }
+            }
+            
+            setCurrentModel(modelName);
+          }
+        } catch (modelError) {
+          console.warn('Could not fetch model info:', modelError);
+          setCurrentModel(null);
+        }
+      } else {
+        setConnectionStatus('error');
+        setCurrentModel(null);
+      }
+    } catch (error) {
+      console.warn('Connection check failed:', error);
+      setConnectionStatus('disconnected');
+      setCurrentModel(null);
+    }
+  };
+
+  // Check connection status on mount and periodically
+  useEffect(() => {
+    checkConnectionStatus();
+    const interval = setInterval(checkConnectionStatus, 30000); // Check every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
+
   // Function to parse and render graphs from message content
   const parseAndRenderContent = (content) => {
-    // Look for GRAPH_DATA, TASK_UPDATE, and Holmes promql embedding markers
+    // Look for GRAPH_DATA, TASK_UPDATE, Holmes promql embedding markers, and Prometheus tool outputs
     const graphDataRegex = /📊 \*\*GRAPH_DATA:\*\* ```json\n([\s\S]*?)\n```/g;
     const taskUpdateRegex = /📋 \*\*TASK_UPDATE:\*\* ```json\n([\s\S]*?)\n```/g;
     const promqlEmbedRegex = /<<\s*(\{[^}]*"type"\s*:\s*"promql"[^}]*\})\s*>>/g;
+    const prometheusToolRegex = /📄 \*\*Tool Output \(\d+ chars\):\*\*\n```\n(\{[\s\S]*?\})\n```/g;
     
     const parts = [];
     let lastIndex = 0;
@@ -74,6 +142,12 @@ function App() {
     let promqlMatch;
     while ((promqlMatch = promqlEmbedRegex.exec(content)) !== null) {
       allMatches.push({ ...promqlMatch, type: 'promql_embed' });
+    }
+    
+    // Find Prometheus tool output matches
+    let prometheusMatch;
+    while ((prometheusMatch = prometheusToolRegex.exec(content)) !== null) {
+      allMatches.push({ ...prometheusMatch, type: 'prometheus_tool' });
     }
     
     // Sort by index
@@ -98,7 +172,7 @@ function App() {
           
           if (randomKey) {
             // Try to fetch real data from server
-            fetch(`http://localhost:5051/api/prometheus-data/${randomKey}`)
+            fetch(`${HOLMES_BASE_URL}/api/prometheus-data/${randomKey}`)
               .then(response => response.json())
               .then(realGraphData => {
                 // Update the part with real data
@@ -169,12 +243,95 @@ function App() {
     return parts.length > 0 ? parts : [{ type: 'text', content }];
   };
 
+  // Function to render Prometheus tool output
+  const renderPrometheusToolOutput = (toolData) => {
+    try {
+      // Handle truncated JSON by trying to extract the data array directly
+      let data;
+      if (toolData.includes("'...")) {
+        // Extract the data array from truncated output
+        const dataMatch = toolData.match(/'data': \[(.*?)\]/);
+        if (dataMatch) {
+          const dataStr = dataMatch[1];
+          const items = dataStr.split("', '").map(item => item.replace(/'/g, ''));
+          data = { tool_name: 'get_metric_names', status: 'success', data: items };
+        } else {
+          throw new Error('Could not parse truncated data');
+        }
+      } else {
+        data = JSON.parse(toolData.replace(/'/g, '"'));
+      }
+      
+      // Check if this is a get_label_values or get_metric_names response
+      if (data.tool_name === 'get_label_values' || data.tool_name === 'get_metric_names') {
+        if (data.status === 'success' && Array.isArray(data.data)) {
+          const title = data.tool_name === 'get_label_values' ? 'Label Values' : 'Metric Names';
+          
+          return (
+            <div style={{
+              margin: '10px 0',
+              padding: '12px',
+              backgroundColor: '#f8f9fa',
+              border: '1px solid #e9ecef',
+              borderRadius: '6px'
+            }}>
+              <h4 style={{ margin: '0 0 8px 0', color: '#495057' }}>📋 {title} ({data.data.length} items)</h4>
+              <div style={{
+                maxHeight: '200px',
+                overflowY: 'auto',
+                fontSize: '13px',
+                fontFamily: 'monospace'
+              }}>
+                {data.data.map((item, index) => (
+                  <div key={index} style={{
+                    padding: '2px 0',
+                    borderBottom: index < data.data.length - 1 ? '1px solid #e9ecef' : 'none'
+                  }}>
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+      }
+      
+      // Fallback to original JSON display
+      return (
+        <pre style={{
+          backgroundColor: 'rgba(0,0,0,0.1)',
+          padding: '8px',
+          borderRadius: '4px',
+          overflow: 'auto',
+          fontSize: '12px'
+        }}>
+          {toolData}
+        </pre>
+      );
+    } catch (e) {
+      return <div>Error parsing tool output</div>;
+    }
+  };
+
   // Function to render a Prometheus graph
   const renderPrometheusGraph = (graphData) => {
     const { data, query, metadata } = graphData;
     
-    if (!data.result || !Array.isArray(data.result)) {
-      return <div>No graph data available</div>;
+    if (!data.result || !Array.isArray(data.result) || data.result.length === 0) {
+      return (
+        <div style={{
+          padding: '16px',
+          backgroundColor: '#fff3cd',
+          border: '1px solid #ffeaa7',
+          borderRadius: '6px',
+          color: '#856404',
+          margin: '10px 0'
+        }}>
+          <strong>⚠️ No data returned</strong>
+          <br />
+          Query: <code style={{backgroundColor: 'rgba(0,0,0,0.1)', padding: '2px 4px', borderRadius: '3px'}}>{query}</code>
+        </div>
+      );
     }
 
     const datasets = data.result.map((series, index) => {
@@ -494,7 +651,7 @@ function App() {
       };
 
       // Send request to your AG-UI endpoint
-      const response = await fetch('http://localhost:5051/api/agui/chat', {
+      const response = await fetch(`${HOLMES_BASE_URL}/api/agui/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -771,15 +928,68 @@ function App() {
         boxShadow: '0 2px 2px -1px rgba(152, 162, 179, 0.3), 0 1px 5px -2px rgba(152, 162, 179, 0.3)',
         overflow: 'hidden'
       }}>
-        <h1 style={{ 
+        <div style={{ 
           margin: '0', 
           padding: '20px 20px 16px 20px',
           flexShrink: 0, 
-          color: '#343741', 
-          fontSize: '24px', 
-          fontWeight: '600',
-          borderBottom: '1px solid #d3dae6'
-        }}>Holmes GPT Chat (AG-UI compatible)</h1>
+          borderBottom: '1px solid #d3dae6',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <h1 style={{ 
+            margin: '0',
+            color: '#343741', 
+            fontSize: '24px', 
+            fontWeight: '600'
+          }}>Holmes GPT Chat (AG-UI compatible)</h1>
+          
+          {/* Connection Status */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '14px',
+            fontWeight: '500'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 12px',
+              borderRadius: '16px',
+              backgroundColor: connectionStatus === 'connected' ? '#d4edda' : 
+                             connectionStatus === 'checking' ? '#fff3cd' : '#f8d7da',
+              color: connectionStatus === 'connected' ? '#155724' : 
+                     connectionStatus === 'checking' ? '#856404' : '#721c24',
+              border: `1px solid ${connectionStatus === 'connected' ? '#c3e6cb' : 
+                                  connectionStatus === 'checking' ? '#ffeaa7' : '#f5c6cb'}`
+            }}>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: connectionStatus === 'connected' ? '#28a745' : 
+                               connectionStatus === 'checking' ? '#ffc107' : '#dc3545'
+              }} />
+              {connectionStatus === 'connected' ? 'Connected' : 
+               connectionStatus === 'checking' ? 'Checking...' : 'Disconnected'}
+            </div>
+            
+            {currentModel && connectionStatus === 'connected' && (
+              <div style={{
+                padding: '6px 12px',
+                borderRadius: '16px',
+                backgroundColor: '#e3f2fd',
+                color: '#1565c0',
+                border: '1px solid #bbdefb',
+                fontSize: '13px'
+              }}>
+                Model: {currentModel}
+              </div>
+            )}
+          </div>
+        </div>
         
         <div style={{ 
           flex: 1,
@@ -804,8 +1014,33 @@ function App() {
                 color: msg.sender === 'system' ? '#ffffff' : '#343741',
                 maxWidth: msg.text.includes('📊 **GRAPH_DATA:**') ? '95%' : '70%',
                 wordWrap: 'break-word',
-                boxShadow: '0 2px 2px -1px rgba(152, 162, 179, 0.3), 0 1px 5px -2px rgba(152, 162, 179, 0.3)'
+                boxShadow: '0 2px 2px -1px rgba(152, 162, 179, 0.3), 0 1px 5px -2px rgba(152, 162, 179, 0.3)',
+                position: 'relative'
               }}>
+                {msg.sender !== 'user' && (
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(msg.text);
+                      setCopiedMessageIndex(index);
+                      setTimeout(() => setCopiedMessageIndex(null), 2000);
+                    }}
+                    style={{
+                      position: 'absolute',
+                      top: '8px',
+                      right: '8px',
+                      background: 'rgba(255, 255, 255, 0.8)',
+                      border: '1px solid #d3dae6',
+                      borderRadius: '4px',
+                      padding: '4px 6px',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      color: '#343741'
+                    }}
+                    title={copiedMessageIndex === index ? "Copied!" : "Copy output"}
+                  >
+                    {copiedMessageIndex === index ? "✓" : "📋"}
+                  </button>
+                )}
                 <strong>{msg.sender}:</strong>{' '}
                 {msg.sender === 'user' ? (
                   msg.text
@@ -827,6 +1062,8 @@ function App() {
                           </ReactMarkdown>
                         ) : part.type === 'graph' ? (
                           renderPrometheusGraph(part.data)
+                        ) : part.type === 'prometheus_tool' ? (
+                          renderPrometheusToolOutput(part.data)
                         ) : null}
                       </div>
                     ))}

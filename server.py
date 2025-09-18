@@ -100,6 +100,7 @@ dal = config.dal
 # config.toolset_manager.load_toolset_with_status(dal=dal, refresh_status=True, enable_all_toolsets=True)
 
 def sync_before_server_start():
+    """Sync Holmes status and toolsets before server startup."""
     try:
         update_holmes_status_in_db(dal, config)
     except Exception:
@@ -138,10 +139,16 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
 
 app = FastAPI()
 
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": time.time()}
+
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React app origin
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
