@@ -17,8 +17,9 @@ A React-based chat interface for Holmes GPT that provides real-time streaming, P
 ## Prerequisites
 
 - Node.js and npm
-- Holmes GPT server running on `http://localhost:5051`
-- Prometheus server running on `http://localhost:9090` (for Prometheus UI links)
+- Holmes GPT server running on `http://localhost:5050` (with AG-UI support)
+- Prometheus server running on `http://localhost:9090`
+  - Note: same one for which HolmesGPT server is configured. Used for Prometheus UI links.
 
 ## Setup
 
@@ -32,7 +33,7 @@ npm install
 npm start
 ```
 
-3. Open [http://localhost:3000](http://localhost:3000) to view the interface
+3. Open [http://localhost:5151](http://localhost:5151) to view the interface
 
 ## Usage
 
@@ -66,7 +67,7 @@ The interface connects to Holmes GPT server endpoints:
 ## Available Scripts
 
 ### `npm start`
-Runs the app in development mode on [http://localhost:3000](http://localhost:3000)
+Runs the app in development mode on [http://localhost:5151](http://localhost:5151)
 
 ### `npm run build`
 Builds the app for production to the `build` folder
