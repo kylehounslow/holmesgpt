@@ -443,7 +443,10 @@ def agui_chat(input_data: RunAgentInput, request: Request):
 
     async def event_generator():
         try:
-            # Send AG-UI start event
+            # TODO - kylhouns: Parse and inject input_data.context:Context and input_data.state: dynamicContext and staticContext
+            # TODO - kylhouns: Provide prompt instructions on handling various context and state for OSD
+            logging.info(f"context: {input_data.context}")
+            logging.info(f"state: {input_data.state}")
             yield encoder.encode(
                 RunStartedEvent(
                     type=EventType.RUN_STARTED,
@@ -524,7 +527,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                             yield encoder.encode(event)
                     elif event_type == StreamEvents.START_TOOL:
                         async for event in _stream_agui_text_message_event(
-                                message=f"🔧 Using tool: `{tool_name}`..."):
+                                message=f"🔧 Using Agent tool: `{tool_name}`..."):
                             yield encoder.encode(event)
                     elif event_type == StreamEvents.TOOL_RESULT:
                         # TODO - kylhouns: Render "TodoWrite" tool_name results prettier.
@@ -537,6 +540,15 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                                     tool_call_id=tool_call_id,
                                     tool_call_name="graph_timeseries_data",
                                     tool_call_args=ts_data):
+                                yield encoder.encode(tool_event)
+                        elif _should_execute_suggested_query(tool_name=tool_name):
+                            tool_call_id = chunk.data.get("tool_call_id", chunk.data.get("id", "unknown"))
+                            async for tool_event in _invoke_front_end_tool(
+                                    tool_call_id=tool_call_id,
+                                    tool_call_name="execute_ppl_query",
+                                    tool_call_args={
+                                        "query": _parse_query(chunk.data)
+                                    }):
                                 yield encoder.encode(tool_event)
                         else:
                             async for event in _stream_agui_text_message_event(
@@ -568,21 +580,22 @@ def agui_chat(input_data: RunAgentInput, request: Request):
         media_type=encoder.get_content_type()
     )
 
+def _should_execute_suggested_query(tool_name: str):
+    # Only support ppl query for now.
+    return tool_name in ("opensearch_ppl_query_assist")
 
-def _should_graph_timeseries_data(tool_name: str):
+def _parse_query(data) ->str:
+    result_data = data.get("result", {})
+    params = result_data.get("params", {})
+    query = params.get("query", "")
+    return query
+
+def _should_graph_timeseries_data(tool_name: str) -> bool:
+    # Only support prometheus timeseries data for now.
     return tool_name in ("execute_prometheus_range_query", "execute_prometheus_instant_query")
 
 
 def _parse_timeseries_data(data) -> dict:
-    """
-    Parse Prometheus query results from chunk.data and format for frontend graph visualization.
-    
-    Expected input format from Prometheus tools:
-    - data.result: Prometheus query result (JSON string or dict)
-    - data.query: Original Prometheus query
-    - data.tool_name: Name of the tool that generated this data
-    - data.id: Tool call ID
-    """
     try:
         # DEBUG: Log the raw input data
         logging.info(f"🔍 _parse_timeseries_data received data: {data}")
@@ -697,17 +710,21 @@ def _agui_input_to_holmes_chat_request(input_data: RunAgentInput) -> ChatRequest
     # Convert AG-UI input to ChatRequest format
     user_messages = [msg for msg in input_data.messages if msg.role in ['user', 'assistant']]
     # Build conversation history with system message if there are previous messages
-    conversation_history = None
+    # Add page state/context to conversation history
+    osd_query_state = _parse_osd_query_state(input_data.state)
+    conversation_history = [{
+        "role": "system",
+        "content": osd_query_state
+    }]
     if len(user_messages) > 1:
-        conversation_history = [
+        conversation_history.append(
             {"role": "system",
              "content": "You are Holmes, an AI assistant for observability. You use Prometheus metrics, alerts and OpenSearch logs to quickly perform root cause analysis."}
-        ]
+        )
         conversation_history.extend([
             {"role": msg.role, "content": msg.content}
             for msg in user_messages[:-1]
         ])
-
     chat_request = ChatRequest(
         ask=user_messages[-1].content if user_messages and user_messages[-1].role == 'user' else "",
         conversation_history=conversation_history,
@@ -715,6 +732,18 @@ def _agui_input_to_holmes_chat_request(input_data: RunAgentInput) -> ChatRequest
         stream=True
     )
     return chat_request
+def _parse_osd_query_state(state) -> str:
+    static_context = state.get("staticContext", {})
+    data = static_context.get("data", {})
+    data_context = data.get("dataContext", {})
+    query = data_context.get("query", {})
+    query_str = query.get("query", "")
+    dataset = query.get("dataset", {})
+    index_pattern = dataset.get("title", "")
+    language = query.get("language", "")
+    if language:
+        return f"My current {language} query is '{query_str}' with index pattern: '{index_pattern}'"
+    return ""
 
 @app.get("/api/model")
 def get_model():
