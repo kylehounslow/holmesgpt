@@ -1,6 +1,7 @@
 # ruff: noqa: E402
 import json
 import os
+import time
 from typing import List, Optional
 
 import litellm
@@ -24,7 +25,7 @@ import time
 from litellm.exceptions import AuthenticationError
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from holmes.utils.stream import stream_investigate_formatter, stream_chat_formatter
+from holmes.utils.stream import stream_investigate_formatter, stream_chat_formatter, StreamMessage, StreamEvents
 from holmes.common.env_vars import (
     HOLMES_HOST,
     HOLMES_PORT,
@@ -119,7 +120,6 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
-
 
 if LOG_PERFORMANCE:
 
@@ -396,6 +396,326 @@ def chat(chat_request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# TODO - kylhouns: Move everything to experimental/agui/server.py and include front-end example
+#                  This will demonstrate messaging, tool calls, page context etc.
+from fastapi.middleware.cors import CORSMiddleware
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+import uuid
+import asyncio
+import json
+from fastapi import Request
+from fastapi.responses import StreamingResponse, JSONResponse
+from ag_ui.core import (
+    RunAgentInput,
+    EventType,
+    RunStartedEvent,
+    RunFinishedEvent,
+    TextMessageStartEvent,
+    TextMessageContentEvent,
+    TextMessageEndEvent,
+    ToolCallStartEvent,
+    ToolCallArgsEvent,
+    ToolCallEndEvent,
+    MessagesSnapshotEvent,
+    ToolMessage,
+    ToolCall,
+    AssistantMessage, RunErrorEvent
+)
+from ag_ui.core.events import TextMessageChunkEvent
+from ag_ui.encoder import EventEncoder
+
+@app.get("/api/agui/chat/health")
+def agui_chat(request: Request):
+    return JSONResponse(content="ok")
+
+@app.post("/api/agui/chat")
+def agui_chat(input_data: RunAgentInput, request: Request):
+    accept_header = request.headers.get("accept")
+    encoder = EventEncoder(accept=accept_header)
+
+    async def event_generator():
+        try:
+            # Send AG-UI start event
+            yield encoder.encode(
+                RunStartedEvent(
+                    type=EventType.RUN_STARTED,
+                    thread_id=input_data.thread_id,
+                    run_id=input_data.run_id
+                )
+            )
+            chat_request = _agui_input_to_holmes_chat_request(input_data=input_data)
+            ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
+            global_instructions = dal.get_global_instructions_for_account()
+            messages = build_chat_messages(
+                chat_request.ask,
+                chat_request.conversation_history,
+                ai=ai,
+                config=config,
+                global_instructions=global_instructions,
+            )
+
+            # Process tool decisions if provided
+            if chat_request.tool_decisions:
+                logging.info(
+                    f"Processing {len(chat_request.tool_decisions)} tool decisions"
+                )
+                messages = ai.process_tool_decisions(messages, chat_request.tool_decisions)
+            follow_up_actions = []
+            if not already_answered(chat_request.conversation_history):
+                follow_up_actions = [
+                    FollowUpAction(
+                        id="logs",
+                        action_label="Logs",
+                        prompt="Show me the relevant logs",
+                        pre_action_notification_text="Fetching relevant logs...",
+                    ),
+                    FollowUpAction(
+                        id="graphs",
+                        action_label="Graphs",
+                        prompt="Show me the relevant graphs. Use prometheus and make sure you embed the results with `<< >>` to display a graph",
+                        pre_action_notification_text="Drawing some graphs...",
+                    ),
+                    FollowUpAction(
+                        id="articles",
+                        action_label="Articles",
+                        prompt="List the relevant runbooks and links used. Write a short summary for each",
+                        pre_action_notification_text="Looking up and summarizing runbooks and links...",
+                    ),
+                ]
+
+            # Hijack the HolmesGPT stream output and format as AG-UI
+
+            # original for reference:
+            # return StreamingResponse(
+            #     stream_chat_formatter(
+            #         ai.call_stream(
+            #             msgs=messages,
+            #             enable_tool_approval=chat_request.enable_tool_approval or False,
+            #         ),
+            #         [f.model_dump() for f in follow_up_actions],
+            #     ),
+            #     media_type="text/event-stream",
+            # )
+
+            hgpt_chat_stream_response: StreamMessage = ai.call_stream(
+                msgs=messages,
+                enable_tool_approval=chat_request.enable_tool_approval or False)
+
+            for chunk in hgpt_chat_stream_response:
+                if hasattr(chunk, 'event'):
+                    event_type = chunk.event.value if hasattr(chunk.event, 'value') else str(chunk.event)
+                    logging.info(f"Streaming chunk: {event_type}")
+                else:
+                    event_type = 'unknown'
+                    logging.info(f"Streaming chunk: {chunk}")
+                if hasattr(chunk, 'data'):
+                    tool_name = chunk.data.get('tool_name', chunk.data.get('name', 'Tool'))
+                    if event_type in (StreamEvents.AI_MESSAGE, StreamEvents.ANSWER_END, "unknown"):
+                        async for event in _stream_agui_text_message_event(
+                                message=str(chunk.data.get("content", ""))):
+                            yield encoder.encode(event)
+                    elif event_type == StreamEvents.START_TOOL:
+                        async for event in _stream_agui_text_message_event(
+                                message=f"🔧 Using tool: `{tool_name}`..."):
+                            yield encoder.encode(event)
+                    elif event_type == StreamEvents.TOOL_RESULT:
+                        # TODO - kylhouns: Render "TodoWrite" tool_name results prettier.
+                        logging.info(f"🔧 TOOL_RESULT received - tool_name: {tool_name}")
+                        if _should_graph_timeseries_data(tool_name=tool_name):
+                            logging.info(f"🔧 Should graph timeseries data for tool: {tool_name}")
+                            ts_data = _parse_timeseries_data(chunk.data)
+                            tool_call_id = chunk.data.get("tool_call_id", chunk.data.get("id", "unknown"))
+                            async for tool_event in _invoke_front_end_tool(
+                                    tool_call_id=tool_call_id,
+                                    tool_call_name="graph_timeseries_data",
+                                    tool_call_args=ts_data):
+                                yield encoder.encode(tool_event)
+                        else:
+                            async for event in _stream_agui_text_message_event(
+                                    message=f"🔧 {tool_name} result:\n{chunk.data.get("result", "")}"):
+                                yield encoder.encode(event)
+            yield encoder.encode(
+                RunFinishedEvent(
+                    type=EventType.RUN_FINISHED,
+                    thread_id=input_data.thread_id,
+                    run_id=input_data.run_id,
+                ))
+        except Exception as e:
+            logging.error(f"Error in /api/agui/chat: {e}", exc_info=True)
+            yield encoder.encode(
+                RunErrorEvent(
+                    type=EventType.RUN_ERROR,
+                    message=f"Agent encountered an error: {str(e)}"
+                )
+            )
+            if isinstance(e, AuthenticationError):
+                raise HTTPException(status_code=401, detail=e.message)
+            elif isinstance(e, litellm.exceptions.RateLimitError):
+                raise HTTPException(status_code=429, detail=e.message)
+            else:
+                raise HTTPException(status_code=500, detail=str(e))
+
+    return StreamingResponse(
+        event_generator(),
+        media_type=encoder.get_content_type()
+    )
+
+
+def _should_graph_timeseries_data(tool_name: str):
+    return tool_name in ("execute_prometheus_range_query", "execute_prometheus_instant_query")
+
+
+def _parse_timeseries_data(data) -> dict:
+    """
+    Parse Prometheus query results from chunk.data and format for frontend graph visualization.
+    
+    Expected input format from Prometheus tools:
+    - data.result: Prometheus query result (JSON string or dict)
+    - data.query: Original Prometheus query
+    - data.tool_name: Name of the tool that generated this data
+    - data.id: Tool call ID
+    """
+    try:
+        # DEBUG: Log the raw input data
+        logging.info(f"🔍 _parse_timeseries_data received data: {data}")
+        logging.info(f"🔍 Data type: {type(data)}")
+        logging.info(f"🔍 Data keys: {list(data.keys()) if hasattr(data, 'keys') else 'No keys'}")
+        
+        # Extract the result from chunk.data
+        result_data = data.get("result", {})
+        params = result_data.get("params", {})
+        query = params.get("query", "")
+        description = params.get("description")
+        tool_name = data.get("tool_name", data.get("name", ""))
+        
+        logging.info(f"🔍 Extracted - result_data: {result_data}")
+        logging.info(f"🔍 Extracted - query: {query}")
+        logging.info(f"🔍 Extracted - tool_name: {tool_name}")
+        
+        # If result is a JSON string, parse it
+        if isinstance(result_data, str):
+            try:
+                result_data = json.loads(result_data)
+                logging.info(f"🔍 Parsed JSON result_data: {result_data}")
+            except json.JSONDecodeError:
+                logging.warning(f"Failed to parse result as JSON: {result_data}")
+                result_data = {}
+        
+        # Handle different Prometheus response formats
+        prometheus_data = result_data
+        result_type = "unknown"
+        if "data" in result_data:
+            prometheus_data = json.loads(result_data["data"]).get("data")
+            result_type = prometheus_data.get("resultType", "unknown")
+
+        # Generate a meaningful title
+        title = f"Prometheus Query Results"
+        if query:
+            # Truncate long queries for display
+            display_query = query if len(query) <= 50 else query[:47] + "..."
+            title = f"Prometheus: {display_query}"
+        elif tool_name:
+            title = f"{tool_name} Results"
+        
+        # Prepare metadata
+        metadata = {
+            "timestamp": int(time.time()),
+            "source": "Prometheus",
+            "result_type": result_type,
+            "description": description,
+            "query": query
+        }
+        
+        return {
+            "title": description,
+            "query": query,
+            "data": prometheus_data,
+            "metadata": metadata
+        }
+        
+    except Exception as e:
+        logging.error(f"Error parsing timeseries data: {e}", exc_info=True)
+        # Return a fallback structure
+        return {
+            "title": "Prometheus Query Results (Parse Error)",
+            "query": data.get("query", ""),
+            "data": {
+                "result": []
+            },
+            "metadata": {
+                "timestamp": int(time.time()),
+                "source": "Prometheus",
+                "error": str(e)
+            }
+        }
+
+
+async def _invoke_front_end_tool(tool_call_id: str, tool_call_name: str, tool_call_args: dict):
+    yield ToolCallStartEvent(
+        type=EventType.TOOL_CALL_START,
+        tool_call_id=tool_call_id,
+        tool_call_name=tool_call_name
+    )
+    yield ToolCallArgsEvent(
+        type=EventType.TOOL_CALL_ARGS,
+        tool_call_id=tool_call_id,
+        delta=json.dumps(tool_call_args)
+    )
+    yield ToolCallEndEvent(
+        type=EventType.TOOL_CALL_END,
+        tool_call_id=tool_call_id
+    )
+
+
+async def _stream_agui_text_message_event(message: str):
+    message_id = str(uuid.uuid4())
+    yield TextMessageStartEvent(
+        type=EventType.TEXT_MESSAGE_START,
+        message_id=message_id,
+        role="assistant"
+    )
+    yield TextMessageContentEvent(
+        type=EventType.TEXT_MESSAGE_CONTENT,
+        message_id=message_id,
+        delta=message
+    )
+    yield TextMessageEndEvent(
+        type=EventType.TEXT_MESSAGE_END,
+        message_id=message_id
+    )
+
+
+def _agui_input_to_holmes_chat_request(input_data: RunAgentInput) -> ChatRequest:
+    # Convert AG-UI input to ChatRequest format
+    user_messages = [msg for msg in input_data.messages if msg.role in ['user', 'assistant']]
+    # Build conversation history with system message if there are previous messages
+    conversation_history = None
+    if len(user_messages) > 1:
+        conversation_history = [
+            {"role": "system",
+             "content": "You are Holmes, an AI assistant for observability. You use Prometheus metrics, alerts and OpenSearch logs to quickly perform root cause analysis."}
+        ]
+        conversation_history.extend([
+            {"role": msg.role, "content": msg.content}
+            for msg in user_messages[:-1]
+        ])
+
+    chat_request = ChatRequest(
+        ask=user_messages[-1].content if user_messages and user_messages[-1].role == 'user' else "",
+        conversation_history=conversation_history,
+        model=getattr(input_data, 'model', None),
+        stream=True
+    )
+    return chat_request
+
 @app.get("/api/model")
 def get_model():
     return {"model_name": json.dumps(config.get_models_list())}
@@ -410,4 +730,5 @@ if __name__ == "__main__":
         "%(asctime)s %(levelname)-8s %(message)s"
     )
     sync_before_server_start()
-    uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config)
+    # todo - kylhouns: reload=False was only for pycharm debugging
+    uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config, reload=False)

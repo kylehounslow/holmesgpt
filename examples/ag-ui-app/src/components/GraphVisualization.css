@@ -1,0 +1,67 @@
+.graph-visualization {
+  margin: 1rem 0;
+  border: 1px solid #e9ecef;
+  border-radius: 0.5rem;
+  background: #fff;
+  overflow: hidden;
+}
+
+.graph-container {
+  padding: 1rem;
+}
+
+.graph-header {
+  margin-bottom: 1rem;
+  border-bottom: 1px solid #e9ecef;
+  padding-bottom: 0.5rem;
+}
+
+.graph-header h4 {
+  margin: 0 0 0.5rem 0;
+  color: #333;
+  font-size: 1.1rem;
+}
+
+.query {
+  display: block;
+  background: #f8f9fa;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.85rem;
+  color: #666;
+  border: 1px solid #e9ecef;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.chart-container {
+  height: 300px;
+  margin-bottom: 1rem;
+  position: relative;
+}
+
+.no-data {
+  text-align: center;
+  color: #666;
+  font-style: italic;
+  padding: 2rem;
+  background: #f8f9fa;
+  border-radius: 0.25rem;
+  margin: 1rem 0;
+}
+
+.graph-metadata {
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e9ecef;
+  color: #666;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* Grafana-like styling for the chart area */
+.chart-container canvas {
+  background: #fafafa;
+  border-radius: 0.25rem;
+}
