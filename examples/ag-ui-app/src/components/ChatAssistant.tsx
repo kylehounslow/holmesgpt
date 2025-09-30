@@ -369,8 +369,8 @@ const ChatAssistant: React.FC = () => {
   }, [isResizing]);
 
   const handleSendMessage = async (messageText?: string) => {
-    const textToSend = messageText || inputValue.trim();
-    if (!textToSend || !agentRef.current || isLoading) return;
+    const textToSend = (messageText || inputValue).trim();
+    if (!textToSend || textToSend.length === 0 || !agentRef.current || isLoading) return;
 
     const userMessage: ChatMessage = {
       id: 'user-' + Date.now(),
@@ -401,11 +401,18 @@ const ChatAssistant: React.FC = () => {
         }
 
         // Add the user message to the agent's message history
-        if (agentRef.current) {
+        if (agentRef.current && userMessage.text && userMessage.text.trim()) {
+          const messageContent = userMessage.text.trim();
+          
+          // Double-check content is not empty before adding to agent
+          if (messageContent.length === 0) {
+            throw new Error('Cannot send empty message');
+          }
+          
           agentRef.current.addMessage({
             id: userMessage.id,
             role: 'user',
-            content: userMessage.text || ''
+            content: messageContent
           });
 
           // Wrap runAgent in a timeout to prevent hanging

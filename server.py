@@ -6,6 +6,8 @@ from typing import List, Optional
 
 import litellm
 import sentry_sdk
+from starlette.responses import PlainTextResponse
+
 from holmes import get_version, is_official_release
 from holmes.utils.cert_utils import add_custom_certificate
 
@@ -253,7 +255,7 @@ def workload_health_check(request: WorkloadHealthRequest):
 
 @app.post("/api/workload_health_chat")
 def workload_health_conversation(
-    request: WorkloadHealthChatRequest,
+        request: WorkloadHealthChatRequest,
 ):
     try:
         ai = config.create_toolcalling_llm(dal=dal, model=request.model)
@@ -433,21 +435,88 @@ from ag_ui.core import (
 from ag_ui.core.events import TextMessageChunkEvent
 from ag_ui.encoder import EventEncoder
 
+
 @app.get("/api/agui/chat/health")
 def agui_chat(request: Request):
     return JSONResponse(content="ok")
+
 
 @app.post("/api/agui/chat")
 def agui_chat(input_data: RunAgentInput, request: Request):
     accept_header = request.headers.get("accept")
     encoder = EventEncoder(accept=accept_header)
 
+    # TODO - kylhouns: Parse and inject input_data.context:Context and input_data.state: dynamicContext and staticContext
+    # For now, here's a mock:
+    context = {"context": [
+        {
+            "description": "Current page context from OpenSearch Dashboards Explore application",
+            "value": "{\"appId\":\"explore\",\"pathname\":\"/app/explore\",\"timeRange\":{\"from\":\"now-15m\",\"to\":\"now\"},\"query\":{\"query\":\"source=opensearch_dashboards_sample_data_flights\",\"language\":\"PPL\"},\"dataset\":\"opensearch_dashboards_sample_data_flights\"}"
+        },
+        {
+            "description": "Currently expanded document details from explore table",
+            "value": "{\"documentId\":\"doc_001\",\"expandedAt\":\"2025-01-01T12:00:00Z\",\"triggerType\":\"DOCUMENT_EXPAND\",\"triggerComment\":\"User expanded this document to view detailed content\",\"flightNum\":\"UPD4YVS\",\"origin\":\"Cologne Bonn Airport\",\"originLocation\":{\"lat\":50.86589813,\"lon\":7.142739773},\"destLocation\":{\"lat\":35.76470184,\"lon\":140.3860016},\"flightDelay\":true,\"distanceMiles\":5826.296,\"flightTimeMin\":553.50}"
+        },
+        {
+            "description": "Selected text: \"Cologne Bonn Airport\"",
+            "value": "Cologne Bonn Airport"
+        }
+    ]
+    }
+    # TODO - kylhouns: Provide prompt instructions on handling various context and state for OSD
+    logging.info(f"context: {input_data.context}")
+    logging.info(f"state: {input_data.state}")
+    # Ignore front-end tool result messages. Not supported for now. Use chat history/context instead.
+    if _is_tool_result_message(input_data):
+        return PlainTextResponse("OK", status_code=200)
+    chat_request = _agui_input_to_holmes_chat_request(input_data=input_data)
+
+    if not chat_request.ask:
+        return PlainTextResponse("Bad request. Chat message cannot be empty", status_code=400)
+    ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
+    global_instructions = dal.get_global_instructions_for_account()
+    messages = build_chat_messages(
+        chat_request.ask,
+        chat_request.conversation_history,
+        ai=ai,
+        config=config,
+        global_instructions=global_instructions,
+        additional_system_prompt=chat_request.additional_system_prompt,
+    )
+
+    # Process tool decisions if provided
+    if chat_request.tool_decisions:
+        logging.info(
+            f"Processing {len(chat_request.tool_decisions)} tool decisions"
+        )
+        messages = ai.process_tool_decisions(messages, chat_request.tool_decisions)
+    follow_up_actions = []
+    if not already_answered(chat_request.conversation_history):
+        follow_up_actions = [
+            FollowUpAction(
+                id="logs",
+                action_label="Logs",
+                prompt="Show me the relevant logs",
+                pre_action_notification_text="Fetching relevant logs...",
+            ),
+            FollowUpAction(
+                id="graphs",
+                action_label="Graphs",
+                prompt="Show me the relevant graphs. Use prometheus and make sure you embed the results with `<< >>` to display a graph",
+                pre_action_notification_text="Drawing some graphs...",
+            ),
+            FollowUpAction(
+                id="articles",
+                action_label="Articles",
+                prompt="List the relevant runbooks and links used. Write a short summary for each",
+                pre_action_notification_text="Looking up and summarizing runbooks and links...",
+            ),
+        ]
+
+    # Hijack the HolmesGPT stream output and format as AG-UI
+
     async def event_generator():
         try:
-            # TODO - kylhouns: Parse and inject input_data.context:Context and input_data.state: dynamicContext and staticContext
-            # TODO - kylhouns: Provide prompt instructions on handling various context and state for OSD
-            logging.info(f"context: {input_data.context}")
-            logging.info(f"state: {input_data.state}")
             yield encoder.encode(
                 RunStartedEvent(
                     type=EventType.RUN_STARTED,
@@ -455,64 +524,11 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                     run_id=input_data.run_id
                 )
             )
-            chat_request = _agui_input_to_holmes_chat_request(input_data=input_data)
-            ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
-            global_instructions = dal.get_global_instructions_for_account()
-            messages = build_chat_messages(
-                chat_request.ask,
-                chat_request.conversation_history,
-                ai=ai,
-                config=config,
-                global_instructions=global_instructions,
-            )
-
-            # Process tool decisions if provided
-            if chat_request.tool_decisions:
-                logging.info(
-                    f"Processing {len(chat_request.tool_decisions)} tool decisions"
-                )
-                messages = ai.process_tool_decisions(messages, chat_request.tool_decisions)
-            follow_up_actions = []
-            if not already_answered(chat_request.conversation_history):
-                follow_up_actions = [
-                    FollowUpAction(
-                        id="logs",
-                        action_label="Logs",
-                        prompt="Show me the relevant logs",
-                        pre_action_notification_text="Fetching relevant logs...",
-                    ),
-                    FollowUpAction(
-                        id="graphs",
-                        action_label="Graphs",
-                        prompt="Show me the relevant graphs. Use prometheus and make sure you embed the results with `<< >>` to display a graph",
-                        pre_action_notification_text="Drawing some graphs...",
-                    ),
-                    FollowUpAction(
-                        id="articles",
-                        action_label="Articles",
-                        prompt="List the relevant runbooks and links used. Write a short summary for each",
-                        pre_action_notification_text="Looking up and summarizing runbooks and links...",
-                    ),
-                ]
-
-            # Hijack the HolmesGPT stream output and format as AG-UI
-
-            # original for reference:
-            # return StreamingResponse(
-            #     stream_chat_formatter(
-            #         ai.call_stream(
-            #             msgs=messages,
-            #             enable_tool_approval=chat_request.enable_tool_approval or False,
-            #         ),
-            #         [f.model_dump() for f in follow_up_actions],
-            #     ),
-            #     media_type="text/event-stream",
-            # )
-
+            # if not chat_request.ask:
+            #     yield RunFinishedEvent
             hgpt_chat_stream_response: StreamMessage = ai.call_stream(
                 msgs=messages,
                 enable_tool_approval=chat_request.enable_tool_approval or False)
-
             for chunk in hgpt_chat_stream_response:
                 if hasattr(chunk, 'event'):
                     event_type = chunk.event.value if hasattr(chunk.event, 'value') else str(chunk.event)
@@ -532,11 +548,13 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                             yield encoder.encode(event)
                     elif event_type == StreamEvents.TOOL_RESULT:
                         # TODO - kylhouns: Render "TodoWrite" tool_name results prettier.
+                        #                 Ideally using TOOL_STEP events.
                         logging.info(f"🔧 TOOL_RESULT received - tool_name: {tool_name}")
                         if _should_graph_timeseries_data(tool_name=tool_name):
                             logging.info(f"🔧 Should graph timeseries data for tool: {tool_name}")
                             ts_data = _parse_timeseries_data(chunk.data)
                             tool_call_id = chunk.data.get("tool_call_id", chunk.data.get("id", "unknown"))
+                            # TODO - kylhouns: Automate front-end tools discovery and let LLM decide which to invoke.
                             async for tool_event in _invoke_front_end_tool(
                                     tool_call_id=tool_call_id,
                                     tool_call_name="graph_timeseries_data",
@@ -553,7 +571,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                                 yield encoder.encode(tool_event)
                         else:
                             async for event in _stream_agui_text_message_event(
-                                    message=f"🔧 {tool_name} result:\n{chunk.data.get("result", "")}"):
+                                    message=f"🔧 {tool_name} result:\n{chunk.data.get("result", {}).get("data", "")[0:100]}..."):
                                 yield encoder.encode(event)
             yield encoder.encode(
                 RunFinishedEvent(
@@ -581,15 +599,28 @@ def agui_chat(input_data: RunAgentInput, request: Request):
         media_type=encoder.get_content_type()
     )
 
-def _should_execute_suggested_query(tool_name: str):
+
+def _remove_empty_user_messages(messages: list) -> list:
+    messages_copy = []
+    for msg in messages:
+        if not (msg.get("role", "") == "user" and len(str(msg.get("content", "")).strip()) == 0):
+            messages_copy.append(msg)
+        else:
+            logging.warning(f"Removing empty user message from conversation history: {msg}")
+    return messages_copy
+
+
+def _should_execute_suggested_query(tool_name: str) -> bool:
     # Only support ppl query for now.
     return tool_name in ("opensearch_ppl_query_assist")
 
-def _parse_query(data) ->str:
+
+def _parse_query(data) -> str:
     result_data = data.get("result", {})
     params = result_data.get("params", {})
     query = params.get("query", "")
     return query
+
 
 def _should_graph_timeseries_data(tool_name: str) -> bool:
     # Only support prometheus timeseries data for now.
@@ -602,18 +633,18 @@ def _parse_timeseries_data(data) -> dict:
         logging.info(f"🔍 _parse_timeseries_data received data: {data}")
         logging.info(f"🔍 Data type: {type(data)}")
         logging.info(f"🔍 Data keys: {list(data.keys()) if hasattr(data, 'keys') else 'No keys'}")
-        
+
         # Extract the result from chunk.data
         result_data = data.get("result", {})
         params = result_data.get("params", {})
         query = params.get("query", "")
         description = params.get("description")
         tool_name = data.get("tool_name", data.get("name", ""))
-        
+
         logging.info(f"🔍 Extracted - result_data: {result_data}")
         logging.info(f"🔍 Extracted - query: {query}")
         logging.info(f"🔍 Extracted - tool_name: {tool_name}")
-        
+
         # If result is a JSON string, parse it
         if isinstance(result_data, str):
             try:
@@ -622,7 +653,7 @@ def _parse_timeseries_data(data) -> dict:
             except json.JSONDecodeError:
                 logging.warning(f"Failed to parse result as JSON: {result_data}")
                 result_data = {}
-        
+
         # Handle different Prometheus response formats
         prometheus_data = result_data
         result_type = "unknown"
@@ -638,7 +669,7 @@ def _parse_timeseries_data(data) -> dict:
             title = f"Prometheus: {display_query}"
         elif tool_name:
             title = f"{tool_name} Results"
-        
+
         # Prepare metadata
         metadata = {
             "timestamp": int(time.time()),
@@ -647,14 +678,14 @@ def _parse_timeseries_data(data) -> dict:
             "description": description,
             "query": query
         }
-        
+
         return {
             "title": description,
             "query": query,
             "data": prometheus_data,
             "metadata": metadata
         }
-        
+
     except Exception as e:
         logging.error(f"Error parsing timeseries data: {e}", exc_info=True)
         # Return a fallback structure
@@ -706,45 +737,46 @@ async def _stream_agui_text_message_event(message: str):
         message_id=message_id
     )
 
+def _is_tool_result_message(input_data: RunAgentInput) -> bool:
+    return input_data.messages[-1].role == "tool"
 
 def _agui_input_to_holmes_chat_request(input_data: RunAgentInput) -> ChatRequest:
     # Convert AG-UI input to ChatRequest format
-    user_messages = [msg for msg in input_data.messages if msg.role in ['user', 'assistant']]
-    # Build conversation history with system message if there are previous messages
-    # Add page state/context to conversation history
-    osd_query_state = _parse_osd_query_state(input_data.state)
-    conversation_history = [{
-        "role": "system",
-        "content": osd_query_state
-    }]
-    if len(user_messages) > 1:
-        conversation_history.append(
+    non_system_messages = []
+    # IMPORTANT: Do not support front-end "tool" messages for now. Stire them as assistant messages in conv. history.
+    # requires full integration with tools. Claude will complain about "toolResult" missing corresponding "toolUse" msg.
+    # E.g. `The number of toolResult blocks at messages.2.content exceeds the number of toolUse blocks of previous turn`
+    for msg in input_data.messages:
+        if msg.role in ("user", "assistant"):
+            non_system_messages.append(msg)
+        elif msg.role == "tool":
+            msg_tmp = msg
+            msg_tmp.role = "assistant"
+            non_system_messages.append(msg_tmp)
+    conversation_history = None
+    if len(non_system_messages) > 1:
+        conversation_history = [
             {"role": "system",
              "content": "You are Holmes, an AI assistant for observability. You use Prometheus metrics, alerts and OpenSearch logs to quickly perform root cause analysis."}
-        )
+        ]
         conversation_history.extend([
-            {"role": msg.role, "content": msg.content}
-            for msg in user_messages[:-1]
+            {"role": msg.role, "content": msg.content.strip() if msg.content else ""}
+            for msg in non_system_messages[:-1]
         ])
+
+    # Get the last user message and validate it
+    last_user_message = ""
+    if non_system_messages and non_system_messages[-1].role == 'user':
+        last_user_message = non_system_messages[-1].content.strip() if non_system_messages[-1].content else ""
+
     chat_request = ChatRequest(
-        ask=user_messages[-1].content if user_messages and user_messages[-1].role == 'user' else "",
+        ask=last_user_message,
         conversation_history=conversation_history,
         model=getattr(input_data, 'model', None),
         stream=True
     )
     return chat_request
-def _parse_osd_query_state(state) -> str:
-    static_context = state.get("staticContext", {})
-    data = static_context.get("data", {})
-    data_context = data.get("dataContext", {})
-    query = data_context.get("query", {})
-    query_str = query.get("query", "")
-    dataset = query.get("dataset", {})
-    index_pattern = dataset.get("title", "")
-    language = query.get("language", "")
-    if language:
-        return f"My current {language} query is '{query_str}' with index pattern: '{index_pattern}'"
-    return ""
+
 
 @app.get("/api/model")
 def get_model():
