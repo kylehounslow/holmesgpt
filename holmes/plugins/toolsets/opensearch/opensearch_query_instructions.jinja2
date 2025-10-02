@@ -1,15 +1,18 @@
 # Query Generation
-You have access to the opensearch_query_assist tool to help you display your valid, accurate OpenSearch Piped Processing Language (PPL) queries.
+You have access to the opensearch_ppl_query_assist and opensearch_ppl_query_validation tools to help you generate your valid, accurate OpenSearch Piped Processing Language (PPL) queries.
+DO NOT PROVIDE INVALID QUERIES. ALWAYS CHECK YOUR QUERY USING THE VALIDATION TOOL FIRST.
+
+Once a valid query is generated, you MUST provide a concise, but informative breakdown of each part of the query structure
 
 ## CRITICAL: Query Intent Detection
 
 ALWAYS check if the user's question is about:
 
-    Log Analysis: Errors, warnings, messages, patterns, tool usage
-    Metrics Analysis: Performance, latency, throughput, resource usage
-    Time-based Analysis: "Last X hours/days", "recent", "today", "since"
-    Aggregation Requests: Count, sum, average, top, frequency
-    Troubleshooting: Issues, problems, failures, debugging
+* Log Analysis: Errors, warnings, messages, patterns, tool usage
+* Metrics Analysis: Performance, latency, throughput, resource usage
+* Time-based Analysis: "Last X hours/days", "recent", "today", "since"
+* Aggregation Requests: Count, sum, average, top, frequency
+* Troubleshooting: Issues, problems, failures, debugging
 
 If ANY of the above apply → Generate PPL query IMMEDIATELY and use the OpenSearch Dashboards Page State
 
@@ -19,228 +22,14 @@ appears there is a type in "STAT", it should be "STATS". Below is the fixed quer
 ```
 source=logs-otel-v1* | STATS count() BY severityText
 ```
-## CRITICAL: OpenSearch Dashboards Page State
 
+
+## CRITICAL: OpenSearch Dashboards Page State
 User may be using this agent from OpenSearch Dashboards (OSD) for which provides the current page state.
 It may be included in the conversation history as a system message.
-Use the state "staticContext" field to infer user intent and current query, dataset (opensearch index).
-For example below, the appId tells us the user is in the "explore" page and the data.dataContext.query tells us
-user has logs-otel-v1* index pattern selected and currently has `source=logs-otel-v1* | STATS count() BY severityText`
-query.
-IMPORTANT: YOU CAN USE THE CURRENT USE QUERY TO HELP ENHANCE/MODIFY/FIX/SUGGEST VALID QUERY USING THE SAME INDEX PATTERN
-(e.g. source=logs-otel-v1*)
-Note that query can also contain multi-line text.
-```json
-{
-  "staticContext": {
-    "appId": "explore",
-    "timestamp": 1758911425008,
-    "data": {
-      "appId": "explore",
-      "url": "http://localhost:5603/idu/w/b0M1tI/app/explore/logs/#/?_q=(dataset:(dataSource:(id:'4c223810-81da-11f0-a390-493f5b3bf47b',title:customer-test-domain,type:OpenSearch),id:c246d140-81da-11f0-a390-493f5b3bf47b,timeFieldName:time,title:'logs-otel-v1*',type:INDEX_PATTERN),language:PPL,query:'source%3Dlogs-otel-v1*%20%7C%20STATS%20count()%20BY%20severityText')&_a=(legacy:(columns:!(_source),interval:auto,isDirty:!f,sort:!()),tab:(logs:(),patterns:(patternsField:'',usingRegexPatterns:!f)),ui:(activeTabId:explore_visualization_tab,showHistogram:!t))&_g=(filters:!(),refreshInterval:(pause:!t,value:0),time:(from:now-15m,to:now))&_v=(axesMapping:(x:severityText,y:'count()'),chartType:bar,styleOptions:(addLegend:!t,barBorderColor:%23000000,barBorderWidth:1,barPadding:0.1,barSizeMode:auto,barWidth:0.7,bucket:(aggregationType:sum,bucketTimeUnit:auto),legendPosition:right,showBarBorder:!f,standardAxes:!((axisRole:x,grid:(showLines:!f),id:Axis-1,labels:(filter:!f,rotate:0,show:!t,truncate:100),position:bottom,show:!t,style:(),title:(text:'')),(axisRole:y,grid:(showLines:!t),id:Axis-2,labels:(filter:!f,rotate:0,show:!t,truncate:100),position:left,show:!t,style:(),title:(text:''))),switchAxes:!f,thresholdLines:!((color:%23E7664C,id:'1',name:'',show:!f,style:full,value:10,width:1)),titleOptions:(show:!f,titleName:''),tooltipOptions:(mode:all)))",
-      "pathname": "/idu/w/b0M1tI/app/explore/logs/",
-      "search": "",
-      "type": "explore",
-      "capturePattern": "hybrid",
-      "indexPattern": "unknown",
-      "query": {
-        "query": "",
-        "language": "kuery"
-      },
-      "filters": [],
-      "columns": [
-        "_source"
-      ],
-      "sort": [],
-      "timeRange": {
-        "from": "now-15m",
-        "to": "now"
-      },
-      "expandedDocuments": [
-        {
-          "18": "12:54.712609140",
-          "documentId": "doc_0_1758911303138",
-          "expandedAt": "2025-09-26T18:28:23.139Z",
-          "triggerType": "DOCUMENT_EXPAND",
-          "triggerComment": "User expanded this document to view detailed content",
-          "rawDocumentContent": "severity: -  traceId:882d823b5c570f5ae29485fde8fd1b14 instrumentationScope.name:oteldemo.AdService instrumentationScope.droppedAttributesCount:0 resource.attributes.container.id:8782bc311cd6ec197a9ca94c365e157b55d50488b1d460ba11d45b03265cad7b resource.attributes.process.runtime.name:OpenJDK Runtime Environment resource.attributes.process.runtime.description:Eclipse Adoptium OpenJDK 64-Bit Server VM 21.0.7+6-LTS resource.attributes.process.runtime.version:21.0.7+6-LTS resource.attributes.process.pid:1 resource.attributes.process.executable.path:/opt/java/openjdk/bin/java resource.attributes.process.command_line:/opt/java/openjdk/bin/java -javaagent:/usr/src/app/opentelemetry-javaagent.jar oteldemo.AdService resource.attributes.os.description:Linux 6.14.0-1012-aws resource.attributes.os.type:linux resource.attributes.service.instance.id:9c279768-3c2a-41de-a890-00b79ccc5433 resource.attributes.service.name:ad resource.attributes.service.namespace:opentelemetry-demo resource.attributes.service.version:2.0.2 resource.attributes.host.name:ip-172-31-12-237 resource.attributes.host.arch:amd64 resource.attributes.telemetry.distro.name:opentelemetry-java-instrumentation resource.attributes.telemetry.distro.version:2.17.0 resource.attributes.telemetry.sdk.name:opentelemetry resource.attributes.telemetry.sdk.language:java resource.attributes.telemetry.sdk.version:1.51.0 resource.droppedAttributesCount:0 resource.schemaUrl:https://opentelemetry.io/schemas/1.24.0 flags:1 severityNumber:9 body:no baggage found in context observedTime: -  schemaUrl: spanId:571887500033165c @timestamp: -  severityText:INFO droppedAttributesCount:0 time:Sep 26, 2025 @ 18:12:54.712609140 observedTimestamp:2025-09-26T18:12:54.712615021Z _id: -  _type: -  _index:c246d140-81da-11f0-a390-493f5b3bf47b _score: -",
-          "severity": "-",
-          "traceId": "882d823b5c570f5ae29485fde8fd1b14",
-          "instrumentationScope.name": "oteldemo.AdService",
-          "instrumentationScope.droppedAttributesCount": "0",
-          "resource.attributes.container.id": "8782bc311cd6ec197a9ca94c365e157b55d50488b1d460ba11d45b03265cad7b",
-          "resource.attributes.process.runtime.name": "OpenJDK Runtime Environment",
-          "resource.attributes.process.runtime.description": "Eclipse Adoptium OpenJDK 64-Bit Server VM 21.0.7+6-LTS",
-          "resource.attributes.process.runtime.version": "21.0.7+6-LTS",
-          "resource.attributes.process.pid": "1",
-          "resource.attributes.process.executable.path": "/opt/java/openjdk/bin/java",
-          "resource.attributes.process.command_line": "/opt/java/openjdk/bin/java",
-          "-javaagent": "/usr/src/app/opentelemetry-javaagent.jar oteldemo.AdService",
-          "resource.attributes.os.description": "Linux 6.14.0-1012-aws",
-          "resource.attributes.os.type": "linux",
-          "resource.attributes.service.instance.id": "9c279768-3c2a-41de-a890-00b79ccc5433",
-          "resource.attributes.service.name": "ad",
-          "resource.attributes.service.namespace": "opentelemetry-demo",
-          "resource.attributes.service.version": "2.0.2",
-          "resource.attributes.host.name": "ip-172-31-12-237",
-          "resource.attributes.host.arch": "amd64",
-          "resource.attributes.telemetry.distro.name": "opentelemetry-java-instrumentation",
-          "resource.attributes.telemetry.distro.version": "2.17.0",
-          "resource.attributes.telemetry.sdk.name": "opentelemetry",
-          "resource.attributes.telemetry.sdk.language": "java",
-          "resource.attributes.telemetry.sdk.version": "1.51.0",
-          "resource.droppedAttributesCount": "0",
-          "resource.schemaUrl": "https://opentelemetry.io/schemas/1.24.0",
-          "flags": "1",
-          "severityNumber": "9",
-          "body": "no baggage found in context",
-          "observedTime": "-",
-          "spanId": "571887500033165c",
-          "@timestamp": "-",
-          "severityText": "INFO",
-          "droppedAttributesCount": "0",
-          "time": "Sep 26, 2025 @",
-          "observedTimestamp": "2025-09-26T18:12:54.712615021Z",
-          "_id": "-",
-          "_type": "-",
-          "_index": "c246d140-81da-11f0-a390-493f5b3bf47b",
-          "_score": "-"
-        }
-      ],
-      "selectedFields": {},
-      "interactionSummary": {
-        "totalExpanded": 1,
-        "totalFieldFilters": 0,
-        "hasMultipleExpanded": false,
-        "lastInteraction": 1758911303139,
-        "totalInteractions": 1,
-        "recentActivity": false
-      },
-      "userActivity": {
-        "currentFocus": "User is examining 1 expanded document(s)",
-        "lastAction": "2025-09-26T18:28:23.139Z",
-        "contextNote": "These are documents the user has expanded to examine in detail. This represents their current focus and investigation area.",
-        "recentDocuments": [
-          {
-            "18": "12:54.712609140",
-            "documentId": "doc_0_1758911303138",
-            "expandedAt": "2025-09-26T18:28:23.139Z",
-            "triggerType": "DOCUMENT_EXPAND",
-            "triggerComment": "User expanded this document to view detailed content",
-            "rawDocumentContent": "severity: -  traceId:882d823b5c570f5ae29485fde8fd1b14 instrumentationScope.name:oteldemo.AdService instrumentationScope.droppedAttributesCount:0 resource.attributes.container.id:8782bc311cd6ec197a9ca94c365e157b55d50488b1d460ba11d45b03265cad7b resource.attributes.process.runtime.name:OpenJDK Runtime Environment resource.attributes.process.runtime.description:Eclipse Adoptium OpenJDK 64-Bit Server VM 21.0.7+6-LTS resource.attributes.process.runtime.version:21.0.7+6-LTS resource.attributes.process.pid:1 resource.attributes.process.executable.path:/opt/java/openjdk/bin/java resource.attributes.process.command_line:/opt/java/openjdk/bin/java -javaagent:/usr/src/app/opentelemetry-javaagent.jar oteldemo.AdService resource.attributes.os.description:Linux 6.14.0-1012-aws resource.attributes.os.type:linux resource.attributes.service.instance.id:9c279768-3c2a-41de-a890-00b79ccc5433 resource.attributes.service.name:ad resource.attributes.service.namespace:opentelemetry-demo resource.attributes.service.version:2.0.2 resource.attributes.host.name:ip-172-31-12-237 resource.attributes.host.arch:amd64 resource.attributes.telemetry.distro.name:opentelemetry-java-instrumentation resource.attributes.telemetry.distro.version:2.17.0 resource.attributes.telemetry.sdk.name:opentelemetry resource.attributes.telemetry.sdk.language:java resource.attributes.telemetry.sdk.version:1.51.0 resource.droppedAttributesCount:0 resource.schemaUrl:https://opentelemetry.io/schemas/1.24.0 flags:1 severityNumber:9 body:no baggage found in context observedTime: -  schemaUrl: spanId:571887500033165c @timestamp: -  severityText:INFO droppedAttributesCount:0 time:Sep 26, 2025 @ 18:12:54.712609140 observedTimestamp:2025-09-26T18:12:54.712615021Z _id: -  _type: -  _index:c246d140-81da-11f0-a390-493f5b3bf47b _score: -",
-            "severity": "-",
-            "traceId": "882d823b5c570f5ae29485fde8fd1b14",
-            "instrumentationScope.name": "oteldemo.AdService",
-            "instrumentationScope.droppedAttributesCount": "0",
-            "resource.attributes.container.id": "8782bc311cd6ec197a9ca94c365e157b55d50488b1d460ba11d45b03265cad7b",
-            "resource.attributes.process.runtime.name": "OpenJDK Runtime Environment",
-            "resource.attributes.process.runtime.description": "Eclipse Adoptium OpenJDK 64-Bit Server VM 21.0.7+6-LTS",
-            "resource.attributes.process.runtime.version": "21.0.7+6-LTS",
-            "resource.attributes.process.pid": "1",
-            "resource.attributes.process.executable.path": "/opt/java/openjdk/bin/java",
-            "resource.attributes.process.command_line": "/opt/java/openjdk/bin/java",
-            "-javaagent": "/usr/src/app/opentelemetry-javaagent.jar oteldemo.AdService",
-            "resource.attributes.os.description": "Linux 6.14.0-1012-aws",
-            "resource.attributes.os.type": "linux",
-            "resource.attributes.service.instance.id": "9c279768-3c2a-41de-a890-00b79ccc5433",
-            "resource.attributes.service.name": "ad",
-            "resource.attributes.service.namespace": "opentelemetry-demo",
-            "resource.attributes.service.version": "2.0.2",
-            "resource.attributes.host.name": "ip-172-31-12-237",
-            "resource.attributes.host.arch": "amd64",
-            "resource.attributes.telemetry.distro.name": "opentelemetry-java-instrumentation",
-            "resource.attributes.telemetry.distro.version": "2.17.0",
-            "resource.attributes.telemetry.sdk.name": "opentelemetry",
-            "resource.attributes.telemetry.sdk.language": "java",
-            "resource.attributes.telemetry.sdk.version": "1.51.0",
-            "resource.droppedAttributesCount": "0",
-            "resource.schemaUrl": "https://opentelemetry.io/schemas/1.24.0",
-            "flags": "1",
-            "severityNumber": "9",
-            "body": "no baggage found in context",
-            "observedTime": "-",
-            "spanId": "571887500033165c",
-            "@timestamp": "-",
-            "severityText": "INFO",
-            "droppedAttributesCount": "0",
-            "time": "Sep 26, 2025 @",
-            "observedTimestamp": "2025-09-26T18:12:54.712615021Z",
-            "_id": "-",
-            "_type": "-",
-            "_index": "c246d140-81da-11f0-a390-493f5b3bf47b",
-            "_score": "-"
-          }
-        ]
-      },
-      "metadata": {
-        "hasTransientState": true,
-        "stateComplexity": "moderate",
-        "lastInteraction": 1758911303139,
-        "customProperties": {
-          "capturePattern": "hybrid",
-          "expandedDocumentCount": 1,
-          "selectedFieldCount": 0,
-          "totalInteractions": 1,
-          "isActiveSession": true
-        },
-        "urlKeys": [
-          "indexPattern",
-          "query",
-          "filters",
-          "columns",
-          "sort",
-          "timeRange",
-          "url",
-          "pathname",
-          "search",
-          "hash"
-        ],
-        "transientKeys": [
-          "expandedDocuments",
-          "selectedFields",
-          "interactionSummary",
-          "userActivity"
-        ]
-      },
-      "timestamp": 1758911425008,
-      "dataContext": {
-        "timeRange": {
-          "from": "now-15m",
-          "to": "now"
-        },
-        "filters": [],
-        "query": {
-          "query": "source=logs-otel-v1* | STATS count() BY severityText",
-          "language": "PPL",
-          "dataset": {
-            "id": "c246d140-81da-11f0-a390-493f5b3bf47b",
-            "title": "logs-otel-v1*",
-            "type": "INDEX_PATTERN",
-            "timeFieldName": "time",
-            "dataSource": {
-              "id": "4c223810-81da-11f0-a390-493f5b3bf47b",
-              "title": "customer-test-domain",
-              "type": "OpenSearch"
-            }
-          }
-        }
-      }
-    }
-  },
-  "dynamicContext": {
-    "appId": "explore/logs",
-    "trigger": "GLOBAL_CLICK",
-    "timestamp": "2025-09-26T18:30:24.905Z",
-    "data": {
-      "type": "click",
-      "className": "euiFieldText euiFieldText--fullWidth",
-      "tagName": "INPUT",
-      "timestamp": "2025-09-26T18:30:24.905Z",
-      "app": "explore/logs"
-    }
-  }
-}
 
+IMPORTANT: YOU CAN USE THE CURRENT USE QUERY TO HELP ENHANCE/MODIFY/FIX/SUGGEST VALID QUERY USING THE SAME INDEX PATTERN
+REFER TO "Core PPL Commands" FOR SYNTAX
 
 ```
 ## OpenSearch PPL Query Language
@@ -430,3 +219,5 @@ query: {
 }
 ```
 
+## More PPL Queries
+{% include "ppl_queries.jinja2" %}

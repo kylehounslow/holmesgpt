@@ -571,7 +571,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                                 yield encoder.encode(tool_event)
                         else:
                             async for event in _stream_agui_text_message_event(
-                                    message=f"🔧 {tool_name} result:\n{chunk.data.get("result", {}).get("data", "")[0:100]}..."):
+                                    message=f"🔧 {tool_name} result:\n{chunk.data.get("result", {}).get("data", "")[0:200]}..."):
                                 yield encoder.encode(event)
             yield encoder.encode(
                 RunFinishedEvent(
@@ -737,8 +737,10 @@ async def _stream_agui_text_message_event(message: str):
         message_id=message_id
     )
 
+
 def _is_tool_result_message(input_data: RunAgentInput) -> bool:
     return input_data.messages[-1].role == "tool"
+
 
 def _agui_input_to_holmes_chat_request(input_data: RunAgentInput) -> ChatRequest:
     # Convert AG-UI input to ChatRequest format
@@ -753,12 +755,15 @@ def _agui_input_to_holmes_chat_request(input_data: RunAgentInput) -> ChatRequest
             msg_tmp = msg
             msg_tmp.role = "assistant"
             non_system_messages.append(msg_tmp)
-    conversation_history = None
+    conversation_history = [
+        {"role": "system",
+         "content": "You are Holmes, an AI assistant for observability. You use Prometheus metrics, alerts and OpenSearch logs to quickly perform root cause analysis."}
+    ]
+    if input_data.context:
+        conversation_history.append({"role": "system",
+                                     "content": f"The user has the following information in their current web page for which you are assisting them. {input_data.context}"
+                                     })
     if len(non_system_messages) > 1:
-        conversation_history = [
-            {"role": "system",
-             "content": "You are Holmes, an AI assistant for observability. You use Prometheus metrics, alerts and OpenSearch logs to quickly perform root cause analysis."}
-        ]
         conversation_history.extend([
             {"role": msg.role, "content": msg.content.strip() if msg.content else ""}
             for msg in non_system_messages[:-1]
