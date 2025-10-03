@@ -92,6 +92,23 @@ m scrollable legend */
   box-sizing: border-box;
 }
 
+/* Vertical legend layout for many series or long labels */
+.legend-items.vertical {
+  flex-direction: column !important;
+  flex-wrap: nowrap !important;
+  max-height: 200px;
+  gap: 6px;
+}
+
+.legend-items.vertical .legend-item {
+  width: 100% !important;
+  justify-content: flex-start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
 .legend-item {
   display: flex;
   align-items: center;
@@ -153,6 +170,10 @@ m scrollable legend */
 @media (max-width: 768px) {
   .legend-items {
     max-height: 100px;
+  }
+  
+  .legend-items.vertical {
+    max-height: 150px;
   }
   
   .legend-item {

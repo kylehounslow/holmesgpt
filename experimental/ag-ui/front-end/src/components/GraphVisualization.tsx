@@ -211,6 +211,37 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ data }) => {
     },
   };
 
+  // Determine if legend should be vertical based on number of series and label length
+  const shouldUseVerticalLegend = (datasets: any[]) => {
+    const seriesCount = datasets.length;
+    const maxLabelLength = Math.max(...datasets.map(dataset => 
+      dataset.label ? dataset.label.length : 0
+    ));
+    const hasLongLabels = datasets.some(dataset => 
+      dataset.label && dataset.label.length > 30  // Lowered from 40 to 30
+    );
+    
+    console.log('Legend layout check:', {
+      seriesCount,
+      maxLabelLength,
+      hasLongLabels,
+      sampleLabels: datasets.slice(0, 3).map(d => d.label)
+    });
+    
+    // Use vertical layout if:
+    // - More than 5 series (lowered from 6), OR
+    // - Any label is longer than 30 characters (lowered from 40), OR
+    // - More than 3 series AND any label is longer than 20 characters
+    const shouldBeVertical = seriesCount > 5 || 
+           hasLongLabels || 
+           (seriesCount > 3 && datasets.some(dataset => 
+             dataset.label && dataset.label.length > 20
+           ));
+    
+    console.log('Should use vertical legend:', shouldBeVertical);
+    return shouldBeVertical;
+  };
+
   const chartData = prepareChartData();
 
   if (!graphData?.result || graphData.result.length === 0) {
@@ -241,7 +272,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ data }) => {
         
         {/* Custom scrollable legend */}
         <div className="custom-legend">
-          <div className="legend-items">
+          <div className={`legend-items ${shouldUseVerticalLegend(chartData.datasets) ? 'vertical' : ''}`}>
             {chartData.datasets.map((dataset, index) => (
               <div key={index} className="legend-item">
                 <div 

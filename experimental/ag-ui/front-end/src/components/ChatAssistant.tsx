@@ -800,7 +800,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
 
           // Add timeout to prevent hanging requests
           const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Request timeout')), 30000);
+            setTimeout(() => reject(new Error('Request timeout')), 120000);
           });
 
           await Promise.race([runAgentPromise, timeoutPromise]);
@@ -1002,14 +1002,14 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
             }
           }}
           onKeyDown={handleKeyDown}
-          placeholder="Type your message..."
-          disabled={isLoading}
+          placeholder={isThinking ? "Holmes is thinking..." : "Type your message..."}
+          disabled={isLoading || isThinking}
         />
         <button 
           onClick={() => handleSendMessage()} 
-          disabled={isLoading || !inputValue.trim() || connectionStatus === 'disconnected'}
+          disabled={isLoading || isThinking || !inputValue.trim() || connectionStatus === 'disconnected'}
         >
-          {isLoading ? 'Sending...' : connectionStatus === 'disconnected' ? 'Disconnected' : 'Send'}
+          {isThinking ? 'Thinking...' : isLoading ? 'Sending...' : connectionStatus === 'disconnected' ? 'Disconnected' : 'Send'}
         </button>
       </div>
     </div>

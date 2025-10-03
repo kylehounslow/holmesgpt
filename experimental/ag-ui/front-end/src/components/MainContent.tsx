@@ -59,8 +59,20 @@ const MainContent: React.FC<MainContentProps> = ({
   
   // Indices discovery state
   const [availableIndices, setAvailableIndices] = useState<string[]>([]);
-  const [showIndices, setShowIndices] = useState(false);
+
   const [loadingIndices, setLoadingIndices] = useState(false);
+  
+  // Metrics discovery state - three-box interface
+  const [availableMetrics, setAvailableMetrics] = useState<string[]>([]);
+  const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
+  const [availableLabels, setAvailableLabels] = useState<string[]>([]);
+  const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
+  const [availableLabelValues, setAvailableLabelValues] = useState<string[]>([]);
+  const [loadingMetrics, setLoadingMetrics] = useState(false);
+  const [loadingLabels, setLoadingLabels] = useState(false);
+  const [loadingLabelValues, setLoadingLabelValues] = useState(false);
+  const [showExplorer, setShowExplorer] = useState(false);
+  const [showIndicesExplorer, setShowIndicesExplorer] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
 
   // Helper function to create OpenSearch auth headers
@@ -106,31 +118,138 @@ const MainContent: React.FC<MainContentProps> = ({
     }
   }, [opensearchUrl, selectedPage, opensearchStatus, getOpensearchHeaders]);
 
-  // Toggle available indices display
-  const toggleAvailableIndices = React.useCallback(async () => {
-    if (selectedPage !== 'logs' || opensearchStatus !== 'connected') return;
+  // Fetch metrics count automatically when connected
+  const fetchMetricsCount = React.useCallback(async () => {
+    if (selectedPage !== 'metrics' || prometheusStatus !== 'connected') return;
 
-    // If indices are currently shown, just hide them
-    if (showIndices) {
-      setShowIndices(false);
-      return;
-    }
-
-    // If we already have indices cached, just show them
-    if (availableIndices.length > 0) {
-      setShowIndices(true);
-      return;
-    }
-
-    // Otherwise, fetch indices from OpenSearch (this shouldn't happen often now)
-    setLoadingIndices(true);
     try {
-      await fetchIndicesCount();
-      setShowIndices(true);
-    } finally {
-      setLoadingIndices(false);
+      const response = await fetch(`${prometheusUrl}/api/v1/label/__name__/values`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(10000), // 10 second timeout
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.status === 'success' && result.data) {
+          const metricNames = result.data
+            .filter((name: string) => name && !name.startsWith('__')) // Filter out internal metrics
+            .sort();
+          
+          setAvailableMetrics(metricNames);
+        } else {
+          console.error('Failed to fetch metrics: Invalid response format');
+          setAvailableMetrics([]);
+        }
+      } else {
+        console.error('Failed to fetch metrics:', response.status, response.statusText);
+        setAvailableMetrics([]);
+      }
+    } catch (error) {
+      console.error('Error fetching metrics:', error);
+      setAvailableMetrics([]);
     }
-  }, [selectedPage, opensearchStatus, showIndices, availableIndices.length, fetchIndicesCount]);
+  }, [prometheusUrl, selectedPage, prometheusStatus]);
+
+  // Fetch labels for selected metric
+  const fetchLabelsForMetric = React.useCallback(async (metricName: string) => {
+    if (!metricName || selectedPage !== 'metrics' || prometheusStatus !== 'connected') return;
+
+    setLoadingLabels(true);
+    try {
+      const response = await fetch(`${prometheusUrl}/api/v1/series?match[]=${encodeURIComponent(metricName)}&limit=1000`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.status === 'success' && result.data) {
+          const labelSet = new Set<string>();
+          result.data.forEach((series: any) => {
+            Object.keys(series).forEach(label => {
+              if (label !== '__name__') {
+                labelSet.add(label);
+              }
+            });
+          });
+          
+          const labels = Array.from(labelSet).sort();
+          setAvailableLabels(labels);
+        } else {
+          setAvailableLabels([]);
+        }
+      } else {
+        console.error('Failed to fetch labels:', response.status, response.statusText);
+        setAvailableLabels([]);
+      }
+    } catch (error) {
+      console.error('Error fetching labels:', error);
+      setAvailableLabels([]);
+    } finally {
+      setLoadingLabels(false);
+    }
+  }, [prometheusUrl, selectedPage, prometheusStatus]);
+
+  // Fetch label values for selected metric and label
+  const fetchLabelValues = React.useCallback(async (metricName: string, labelName: string) => {
+    if (!metricName || !labelName || selectedPage !== 'metrics' || prometheusStatus !== 'connected') return;
+
+    setLoadingLabelValues(true);
+    try {
+      const response = await fetch(`${prometheusUrl}/api/v1/label/${encodeURIComponent(labelName)}/values?match[]=${encodeURIComponent(metricName)}`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.status === 'success' && result.data) {
+          const values = result.data.sort();
+          setAvailableLabelValues(values);
+        } else {
+          setAvailableLabelValues([]);
+        }
+      } else {
+        console.error('Failed to fetch label values:', response.status, response.statusText);
+        setAvailableLabelValues([]);
+      }
+    } catch (error) {
+      console.error('Error fetching label values:', error);
+      setAvailableLabelValues([]);
+    } finally {
+      setLoadingLabelValues(false);
+    }
+  }, [prometheusUrl, selectedPage, prometheusStatus]);
+
+  // Handle metric selection
+  const handleMetricSelect = React.useCallback((metric: string) => {
+    setSelectedMetric(metric);
+    setSelectedLabel(null);
+    setAvailableLabels([]);
+    setAvailableLabelValues([]);
+    fetchLabelsForMetric(metric);
+  }, [fetchLabelsForMetric]);
+
+  // Handle label selection
+  const handleLabelSelect = React.useCallback((label: string) => {
+    if (!selectedMetric) return;
+    setSelectedLabel(label);
+    setAvailableLabelValues([]);
+    fetchLabelValues(selectedMetric, label);
+  }, [selectedMetric, fetchLabelValues]);
+
+  // Handle label value selection - build query
+  const handleLabelValueSelect = React.useCallback((value: string) => {
+    if (!selectedMetric || !selectedLabel) return;
+    const query = `${selectedMetric}{${selectedLabel}="${value}"}`;
+    setQuery(query);
+    // Collapse the explorer since the user has completed building their query
+    setShowExplorer(false);
+  }, [selectedMetric, selectedLabel]);
+
+
+
+
 
   const isUpdatingFromParent = React.useRef(false);
   
@@ -213,20 +332,35 @@ const MainContent: React.FC<MainContentProps> = ({
       } else if (opensearchStatus === 'disconnected') {
         // Clear indices when connection is lost
         setAvailableIndices([]);
-        setShowIndices(false);
       }
     }
   }, [selectedPage, opensearchStatus, availableIndices.length, fetchIndicesCount]);
 
+  // Auto-fetch metrics when Prometheus connection becomes healthy
+  React.useEffect(() => {
+    if (selectedPage === 'metrics') {
+      if (prometheusStatus === 'connected' && availableMetrics.length === 0) {
+        fetchMetricsCount();
+      } else if (prometheusStatus === 'disconnected') {
+        // Clear all metrics data when connection is lost
+        setAvailableMetrics([]);
+        setSelectedMetric(null);
+        setAvailableLabels([]);
+        setSelectedLabel(null);
+        setAvailableLabelValues([]);
+      }
+    }
+  }, [selectedPage, prometheusStatus, availableMetrics.length, fetchMetricsCount]);
+
   // Check Prometheus connection status
-  const checkPrometheusConnection = React.useCallback(async (isRetry = false) => {
+  const checkPrometheusConnection = React.useCallback(async (isRetry = false, force = false) => {
     if (selectedPage !== 'metrics') {
       setPrometheusStatus('connected'); // Don't check for non-metrics pages
       return;
     }
 
-    // Prevent multiple concurrent checks
-    if (prometheusStatus === 'checking' && !isRetry) {
+    // Prevent multiple concurrent checks (but allow retries and force checks)
+    if (prometheusStatus === 'checking' && !isRetry && !force) {
       console.log('Prometheus check already in progress, skipping');
       return;
     }
@@ -242,15 +376,34 @@ const MainContent: React.FC<MainContentProps> = ({
       await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay for retries
     }
 
+    // Safety timeout to prevent getting stuck in 'checking' state
+    let safetyTimeout: NodeJS.Timeout | null = null;
+    
     try {
+      console.log('Starting Prometheus connection check...', { prometheusUrl, isRetry, currentStatus: prometheusStatus });
       setPrometheusStatus('checking');
-      console.log('Checking Prometheus connection...', prometheusUrl);
-      const response = await fetch(`${prometheusUrl}/api/v1/label/__name__/values?limit=1`, {
+      console.log('Set status to checking, now fetching...', prometheusUrl);
+      
+      safetyTimeout = setTimeout(() => {
+        console.warn('Prometheus check taking too long, forcing disconnected state');
+        setPrometheusStatus('disconnected');
+      }, 12000); // 12 second safety timeout
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+      
+      // Try a simpler endpoint first
+      console.log('About to fetch from:', `${prometheusUrl}/api/v1/query?query=up`);
+      const response = await fetch(`${prometheusUrl}/api/v1/query?query=up`, {
         method: 'GET',
-        signal: AbortSignal.timeout(5000), // 5 second timeout
+        signal: controller.signal
       });
       
-      console.log('Prometheus response:', response.status, response.ok);
+      console.log('Fetch completed, clearing timeouts...');
+      clearTimeout(timeoutId);
+      if (safetyTimeout) clearTimeout(safetyTimeout);
+      
+      console.log('Prometheus response received:', { status: response.status, ok: response.ok, url: response.url });
       if (response.ok) {
         console.log('Setting Prometheus status to connected');
         setPrometheusStatus('connected');
@@ -258,9 +411,26 @@ const MainContent: React.FC<MainContentProps> = ({
         console.log('Setting Prometheus status to disconnected');
         setPrometheusStatus('disconnected');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.warn('Prometheus connection check failed:', error);
+      
+      // Clear safety timeout if it exists
+      if (safetyTimeout) clearTimeout(safetyTimeout);
+      
+      // Handle specific error types
+      if (error.name === 'AbortError') {
+        console.warn('Prometheus connection check timed out');
+      }
+      
       setPrometheusStatus('disconnected');
+      
+      // Auto-retry after 10 seconds if not a manual retry
+      if (!isRetry) {
+        prometheusRetryTimeoutRef.current = setTimeout(() => {
+          console.log('Auto-retrying Prometheus connection...');
+          checkPrometheusConnection(true);
+        }, 10000);
+      }
     }
   }, [prometheusUrl, selectedPage]);
 
@@ -310,6 +480,27 @@ const MainContent: React.FC<MainContentProps> = ({
       setOpensearchStatus('disconnected');
     }
   }, [opensearchUrl, selectedPage, getOpensearchHeaders]);
+
+  // Trigger connection checks when page changes
+  React.useEffect(() => {
+    if (selectedPage === 'metrics') {
+      checkPrometheusConnection(false, true); // Force check on page change
+    } else if (selectedPage === 'logs') {
+      checkOpensearchConnection();
+    }
+  }, [selectedPage, checkPrometheusConnection, checkOpensearchConnection]);
+
+  // Monitor Prometheus status and reset if stuck
+  React.useEffect(() => {
+    if (prometheusStatus === 'checking') {
+      const resetTimeout = setTimeout(() => {
+        console.warn('Prometheus status stuck in checking, forcing retry...');
+        checkPrometheusConnection(true, true); // Force retry
+      }, 15000); // 15 second timeout
+      
+      return () => clearTimeout(resetTimeout);
+    }
+  }, [prometheusStatus, checkPrometheusConnection]);
 
   // Check connection on mount and when page changes
   React.useEffect(() => {
@@ -496,6 +687,11 @@ const MainContent: React.FC<MainContentProps> = ({
   const handleExecuteQuery = async () => {
     if (!query.trim() || isExecuting) return;
 
+    // Collapse the series explorer to give more space for results
+    if (selectedPage === 'metrics' && showExplorer) {
+      setShowExplorer(false);
+    }
+
     const newResult: QueryResult = {
       id: `query-${Date.now()}`,
       query: query.trim(),
@@ -577,19 +773,65 @@ const MainContent: React.FC<MainContentProps> = ({
     }));
   };
 
+  // Track processed trigger queries to prevent infinite loops
+  const processedTriggerQuery = React.useRef<string | null>(null);
+
   // Handle trigger query execution from ChatAssistant
   React.useEffect(() => {
-    if (triggerQuery && triggerQuery.trim()) {
+    if (triggerQuery && triggerQuery.trim() && triggerQuery !== processedTriggerQuery.current) {
+      processedTriggerQuery.current = triggerQuery;
       setQuery(triggerQuery);
-      // Execute the query automatically after a short delay to ensure state is updated
-      setTimeout(() => {
-        handleExecuteQuery();
-        if (onQueryTriggered) {
-          onQueryTriggered();
+      
+      // Execute the query automatically with the triggered query
+      const executeTriggeredQuery = async () => {
+        setIsExecuting(true);
+        try {
+          let result;
+          if (selectedPage === 'metrics') {
+            result = await queryPrometheus(triggerQuery);
+          } else if (selectedPage === 'logs') {
+            result = await queryOpensearch(triggerQuery);
+          } else {
+            throw new Error('Traces not implemented yet');
+          }
+          
+          const newResult: QueryResult = {
+            id: Date.now().toString(),
+            query: triggerQuery,
+            timestamp: new Date(),
+            data: result
+          };
+          
+          setPageResults(prev => ({
+            ...prev,
+            [selectedPage]: newResult
+          }));
+          
+          if (onQueryTriggered) {
+            onQueryTriggered();
+          }
+        } catch (error: any) {
+          const errorResult: QueryResult = {
+            id: Date.now().toString(),
+            query: triggerQuery,
+            timestamp: new Date(),
+            error: error.message || 'An error occurred',
+            errorDetails: error
+          };
+          
+          setPageResults(prev => ({
+            ...prev,
+            [selectedPage]: errorResult
+          }));
+        } finally {
+          setIsExecuting(false);
         }
-      }, 100);
+      };
+      
+      // Small delay to ensure state is updated
+      setTimeout(executeTriggeredQuery, 100);
     }
-  }, [triggerQuery, onQueryTriggered]);
+  }, [triggerQuery, selectedPage, onQueryTriggered]);
 
   // Handle keyboard shortcuts for modal
   React.useEffect(() => {
@@ -686,85 +928,177 @@ const MainContent: React.FC<MainContentProps> = ({
         </div>
       )}
 
-      {/* Indices Discovery Section - Only show for logs page when connected */}
-      {selectedPage === 'logs' && opensearchStatus === 'connected' && (
-        <div className="indices-discovery-section">
-          <button 
-            className="show-indices-btn"
-            onClick={toggleAvailableIndices}
-            disabled={loadingIndices}
-          >
-            {loadingIndices ? (
-              <>
-                <span className="loading-spinner"></span>
-                Loading Indices...
-              </>
-            ) : showIndices ? (
-              <>
-                📂 Hide Indices
-                {availableIndices.length > 0 && (
-                  <span className="indices-count-badge">{availableIndices.length}</span>
+      {/* Prometheus Series Explorer - Three-box interface */}
+      {selectedPage === 'metrics' && prometheusStatus === 'connected' && (
+        <div className="prometheus-explorer">
+          <div className="explorer-header">
+            <div className="explorer-title" onClick={() => setShowExplorer(!showExplorer)}>
+              <h4>
+                Prometheus Series Explorer
+                {availableMetrics.length > 0 && (
+                  <span className="series-count-pill">({availableMetrics.length})</span>
                 )}
-                <span className="dropdown-arrow up">▲</span>
-              </>
-            ) : (
-              <>
-                📂 {availableIndices.length > 0 ? `Show ${availableIndices.length} Indices` : 'Show Available Indices'}
-                <span className="dropdown-arrow">▼</span>
-              </>
-            )}
-          </button>
-          <div className="indices-discovery-header">
-            <p>
-              {availableIndices.length > 0 
-                ? `Found ${availableIndices.length} ${availableIndices.length === 1 ? 'index' : 'indices'} in your OpenSearch cluster`
-                : 'Discover what indices are available in your OpenSearch cluster'
-              }
-            </p>
+                <span className="toggle-icon">{showExplorer ? '▼' : '▶'}</span>
+              </h4>
+              <p>Browse series, labels, and values to build your query</p>
+            </div>
           </div>
+          
+          {showExplorer && (
+            <div className="explorer-boxes">
+            {/* Box 1: Series List */}
+            <div className="explorer-box">
+              <div className="box-header">
+                <h5>Series ({availableMetrics.length})</h5>
+                {loadingMetrics && <span className="loading-spinner"></span>}
+              </div>
+              <div className="box-content">
+                {availableMetrics.length > 0 ? (
+                  availableMetrics.map((metric, i) => (
+                    <div 
+                      key={i} 
+                      className={`explorer-item ${selectedMetric === metric ? 'selected' : ''}`}
+                      onClick={() => handleMetricSelect(metric)}
+                      title={`Click to explore labels for: ${metric}`}
+                    >
+                      {metric}
+                    </div>
+                  ))
+                ) : (
+                  <div className="empty-box">
+                    {loadingMetrics ? 'Loading series...' : 'No series available'}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Box 2: Labels List */}
+            <div className="explorer-box">
+              <div className="box-header">
+                <h5>Labels ({availableLabels.length})</h5>
+                {loadingLabels && <span className="loading-spinner"></span>}
+              </div>
+              <div className="box-content">
+                {selectedMetric ? (
+                  availableLabels.length > 0 ? (
+                    availableLabels.map((label, i) => (
+                      <div 
+                        key={i} 
+                        className={`explorer-item ${selectedLabel === label ? 'selected' : ''}`}
+                        onClick={() => handleLabelSelect(label)}
+                        title={`Click to explore values for label: ${label}`}
+                      >
+                        {label}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="empty-box">
+                      {loadingLabels ? 'Loading labels...' : 'No labels available'}
+                    </div>
+                  )
+                ) : (
+                  <div className="empty-box">Select a series first</div>
+                )}
+              </div>
+            </div>
+
+            {/* Box 3: Label Values List */}
+            <div className="explorer-box">
+              <div className="box-header">
+                <h5>Values ({availableLabelValues.length})</h5>
+                {loadingLabelValues && <span className="loading-spinner"></span>}
+              </div>
+              <div className="box-content">
+                {selectedLabel ? (
+                  availableLabelValues.length > 0 ? (
+                    availableLabelValues.map((value, i) => (
+                      <div 
+                        key={i} 
+                        className="explorer-item"
+                        onClick={() => handleLabelValueSelect(value)}
+                        title={`Click to build query: ${selectedMetric}{${selectedLabel}="${value}"}`}
+                      >
+                        {value}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="empty-box">
+                      {loadingLabelValues ? 'Loading values...' : 'No values available'}
+                    </div>
+                  )
+                ) : (
+                  <div className="empty-box">Select a label first</div>
+                )}
+              </div>
+            </div>
+          </div>
+          )}
         </div>
       )}
 
-      {/* Available Indices Display */}
-      {selectedPage === 'logs' && showIndices && availableIndices.length > 0 && (
-        <div className="indices-display">
-          <div className="indices-header">
-            <h4>Select an Index</h4>
-            <button 
-              className="close-indices-btn"
-              onClick={() => setShowIndices(false)}
-            >
-              ✕
-            </button>
+      {/* OpenSearch Indices Explorer */}
+      {selectedPage === 'logs' && opensearchStatus === 'connected' && (
+        <div className="prometheus-explorer">
+          <div className="explorer-header">
+            <div className="explorer-title" onClick={() => setShowIndicesExplorer(!showIndicesExplorer)}>
+              <h4>
+                OpenSearch Indices Explorer
+                {availableIndices.length > 0 && (
+                  <span className="series-count-pill">({availableIndices.length})</span>
+                )}
+                <span className="toggle-icon">{showIndicesExplorer ? '▼' : '▶'}</span>
+              </h4>
+              <p>Browse available indices to build your PPL query</p>
+            </div>
           </div>
-          <div className="indices-help">
-            💡 Click on an index name to use it in a PPL query
-          </div>
-          <div className="indices-list">
-            {availableIndices.map((index, i) => (
-              <div 
-                key={i} 
-                className="index-item"
-                onClick={() => {
-                  setQuery(`source=${index} | head 10`);
-                  setShowIndices(false);
-                }}
-                title={`Click to use in query: source=${index} | head 10`}
-              >
-                {index}
+          
+          {showIndicesExplorer && (
+            <div className="explorer-boxes">
+              {/* Single Box: Indices List */}
+              <div className="explorer-box opensearch-single-box">
+                <div className="box-header">
+                  <h5>Indices ({availableIndices.length})</h5>
+                  {loadingIndices && <span className="loading-spinner"></span>}
+                </div>
+                <div className="box-content">
+                  {availableIndices.length > 0 ? (
+                    availableIndices.map((index, i) => (
+                      <div 
+                        key={i} 
+                        className="explorer-item"
+                        onClick={() => {
+                          setQuery(`source=${index} | head 10`);
+                          setShowIndicesExplorer(false);
+                        }}
+                        title={`Click to use in query: source=${index} | head 10`}
+                      >
+                        {index}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="empty-box">
+                      {loadingIndices ? 'Loading indices...' : 'No indices available'}
+                    </div>
+                  )}
+                </div>
               </div>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
       <div className="query-section">
         <div className="query-input-container">
-          <label htmlFor="query-input" className="query-label">
-            {selectedPage === 'metrics' && 'Metrics Query'}
-            {selectedPage === 'logs' && 'Log Query'}
-            {selectedPage === 'traces' && 'Trace Query'}
-          </label>
+          <div className="query-label-row">
+            <label htmlFor="query-input" className="query-label">
+              {selectedPage === 'metrics' && 'Metrics Query'}
+              {selectedPage === 'logs' && 'Log Query'}
+              {selectedPage === 'traces' && 'Trace Query'}
+            </label>
+            <span className="query-hint-inline">
+              Press Cmd/Ctrl + Enter to execute
+            </span>
+          </div>
           <div className="query-input-wrapper">
             <textarea
               id="query-input"
@@ -799,9 +1133,6 @@ const MainContent: React.FC<MainContentProps> = ({
               )}
             </div>
           </div>
-          <div className="query-hint">
-            Press Cmd/Ctrl + Enter to execute
-          </div>
         </div>
       </div>
 
@@ -814,39 +1145,6 @@ const MainContent: React.FC<MainContentProps> = ({
           </div>
         ) : (
           <div className="result-item">
-            <div className="result-header">
-              <div className="result-info">
-                <h4 className="result-title">
-                  {selectedPage === 'metrics' ? '📊 Metrics Result' : 
-                   selectedPage === 'logs' ? '📝 Logs Result' : 
-                   '🔍 Traces Result'}
-                </h4>
-                <span className="result-timestamp">
-                  {currentResult.timestamp.toLocaleTimeString()}
-                </span>
-              </div>
-              <div className="result-actions">
-                <div className="result-status">
-                  {currentResult.error ? (
-                    <span className="status-error">Error</span>
-                  ) : currentResult.data ? (
-                    <span className="status-success">Success</span>
-                  ) : (
-                    <span className="status-loading">Loading...</span>
-                  )}
-                </div>
-                {currentResult.data && !currentResult.error && (
-                  <button
-                    className="maximize-button"
-                    onClick={() => setIsMaximized(true)}
-                    title="Maximize visualization"
-                  >
-                    ⛶
-                  </button>
-                )}
-              </div>
-            </div>
-            
             <div className="result-content">
               {currentResult.error ? (
                 <div className="error-message">
@@ -869,42 +1167,60 @@ const MainContent: React.FC<MainContentProps> = ({
                   {/* Check if data is already structured (has title, data, query) or raw (has schema, datarows) */}
                   {(currentResult.data.schema && currentResult.data.datarows) || 
                    (currentResult.data.data && currentResult.data.data.schema && currentResult.data.data.datarows) ? (
-                    <LogsVisualization 
-                      data={
-                        currentResult.data.title ? 
-                          // Data is already structured
-                          currentResult.data :
-                          // Data is raw, need to structure it
-                          {
-                            title: selectedPage === 'logs' ? 'Logs Visualization' : 'Data Visualization',
-                            query: currentResult.query,
-                            data: currentResult.data,
-                            metadata: {
-                              timestamp: Date.now() / 1000,
-                              source: 'OpenSearch PPL'
+                    <div className="visualization-container">
+                      <button
+                        className="maximize-button-overlay"
+                        onClick={() => setIsMaximized(true)}
+                        title="Maximize visualization"
+                      >
+                        ⛶
+                      </button>
+                      <LogsVisualization 
+                        data={
+                          currentResult.data.title ? 
+                            // Data is already structured
+                            currentResult.data :
+                            // Data is raw, need to structure it
+                            {
+                              title: selectedPage === 'logs' ? 'Logs Visualization' : 'Data Visualization',
+                              query: currentResult.query,
+                              data: currentResult.data,
+                              metadata: {
+                                timestamp: Date.now() / 1000,
+                                source: 'OpenSearch PPL'
+                              }
                             }
-                          }
-                      } 
-                    />
+                        } 
+                      />
+                    </div>
                   ) : (currentResult.data.result !== undefined) || 
                        (currentResult.data.data && currentResult.data.data.result !== undefined) ? (
-                    <GraphVisualization 
-                      data={
-                        currentResult.data.title ? 
-                          // Data is already structured
-                          currentResult.data :
-                          // Data is raw, need to structure it
-                          {
-                            title: selectedPage === 'metrics' ? 'Metrics Visualization' : 'Data Visualization',
-                            query: currentResult.query,
-                            data: currentResult.data,
-                            metadata: {
-                              timestamp: Date.now() / 1000,
-                              source: 'Prometheus'
+                    <div className="visualization-container">
+                      <button
+                        className="maximize-button-overlay"
+                        onClick={() => setIsMaximized(true)}
+                        title="Maximize visualization"
+                      >
+                        ⛶
+                      </button>
+                      <GraphVisualization 
+                        data={
+                          currentResult.data.title ? 
+                            // Data is already structured
+                            currentResult.data :
+                            // Data is raw, need to structure it
+                            {
+                              title: selectedPage === 'metrics' ? 'Metrics Visualization' : 'Data Visualization',
+                              query: currentResult.query,
+                              data: currentResult.data,
+                              metadata: {
+                                timestamp: Date.now() / 1000,
+                                source: 'Prometheus'
+                              }
                             }
-                          }
-                      }
-                    />
+                        }
+                      />
+                    </div>
                   ) : (
                     <div className="unsupported-data">
                       <span className="error-icon">⚠️</span>
