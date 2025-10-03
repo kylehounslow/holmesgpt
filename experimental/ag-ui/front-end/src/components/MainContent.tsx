@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import GraphVisualization from './GraphVisualization';
+type ObservabilityPage = 'metrics' | 'logs' | 'traces';
 
 interface QueryResult {
   id: string;
@@ -9,10 +10,124 @@ interface QueryResult {
   error?: string;
 }
 
-const MainContent: React.FC = () => {
-  const [query, setQuery] = useState('');
+interface MainContentProps {
+  selectedPage: ObservabilityPage;
+  initialQuery?: string;
+}
+
+const MainContent: React.FC<MainContentProps> = ({ selectedPage, initialQuery = '' }) => {
+  const [query, setQuery] = useState(initialQuery);
   const [queryResults, setQueryResults] = useState<QueryResult[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [prometheusStatus, setPrometheusStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [prometheusUrl] = useState(process.env.PROMETHEUS_URL || 'http://localhost:9090');
+
+  // Check Prometheus connection status
+  const checkPrometheusConnection = React.useCallback(async () => {
+    if (selectedPage !== 'metrics') {
+      setPrometheusStatus('connected'); // Don't check for non-metrics pages
+      return;
+    }
+
+    try {
+      setPrometheusStatus('checking');
+      const response = await fetch(`${prometheusUrl}/api/v1/label/__name__/values?limit=1`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000), // 5 second timeout
+      });
+      
+      if (response.ok) {
+        setPrometheusStatus('connected');
+      } else {
+        setPrometheusStatus('disconnected');
+      }
+    } catch (error) {
+      console.warn('Prometheus connection check failed:', error);
+      setPrometheusStatus('disconnected');
+    }
+  }, [prometheusUrl, selectedPage]);
+
+  // Check connection on mount and when page changes
+  React.useEffect(() => {
+    checkPrometheusConnection();
+    
+    // Check connection every 30 seconds for metrics page
+    if (selectedPage === 'metrics') {
+      const interval = setInterval(checkPrometheusConnection, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [checkPrometheusConnection, selectedPage]);
+
+  // Update query when initialQuery changes
+  React.useEffect(() => {
+    if (initialQuery && initialQuery !== query) {
+      setQuery(initialQuery);
+    }
+  }, [initialQuery]);
+
+  // Update URL when query changes (debounced)
+  React.useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (query.trim()) {
+        const urlParams = new URLSearchParams(window.location.search);
+        urlParams.set('query', encodeURIComponent(query.trim()));
+        const newUrl = `${window.location.pathname}?${urlParams.toString()}`;
+        window.history.replaceState({}, '', newUrl);
+      } else {
+        // Remove query parameter if empty
+        const urlParams = new URLSearchParams(window.location.search);
+        urlParams.delete('query');
+        const newUrl = urlParams.toString() 
+          ? `${window.location.pathname}?${urlParams.toString()}`
+          : window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+      }
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [query]);
+
+  const queryPrometheus = async (promqlQuery: string) => {
+    const prometheusUrl = process.env.PROMETHEUS_URL || 'http://localhost:9090';
+    const endTime = Math.floor(Date.now() / 1000);
+    const startTime = endTime - 3600; // 1 hour ago
+    const step = 60; // 1 minute step
+
+    try {
+      const url = `${prometheusUrl}/api/v1/query_range?query=${encodeURIComponent(promqlQuery)}&start=${startTime}&end=${endTime}&step=${step}`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Prometheus query failed: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.status !== 'success') {
+        throw new Error(`Prometheus query error: ${result.error || 'Unknown error'}`);
+      }
+
+      return {
+        title: "Metrics Visualization",
+        data: result.data,
+        query: promqlQuery,
+        metadata: {
+          timeRange: "1h",
+          step: "1m",
+          resultType: result.data.resultType
+        }
+      };
+    } catch (error) {
+      console.error('Prometheus query error:', error);
+      throw error;
+    }
+  };
 
   const handleExecuteQuery = async () => {
     if (!query.trim() || isExecuting) return;
@@ -27,42 +142,52 @@ const MainContent: React.FC = () => {
     setQueryResults(prev => [newResult, ...prev]);
 
     try {
-      // Simulate query execution - in real implementation, this would call your backend
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      let responseData: any;
       
-      // Mock data for demonstration - replace with actual API call
-      const mockData = {
-        title: query,
-        data: {
-          result: [
-            {
-              metric: { __name__: query, instance: "localhost:9090" },
-              values: Array.from({ length: 20 }, (_, i) => [
-                Date.now() / 1000 - (20 - i) * 60,
-                (Math.random() * 100).toFixed(2)
-              ])
-            }
-          ]
-        },
-        query: query,
-        metadata: {
-          timeRange: "1h",
-          step: "1m"
-        }
-      };
+      if (selectedPage === 'metrics') {
+        // Query Prometheus for metrics
+        responseData = await queryPrometheus(query.trim());
+      } else {
+        // For logs and traces, use mock data for now
+        responseData = {
+          title: `${selectedPage.charAt(0).toUpperCase() + selectedPage.slice(1)} Visualization`,
+          data: {
+            result: [
+              {
+                metric: { __name__: query, service: selectedPage },
+                values: Array.from({ length: 20 }, (_, i) => [
+                  Date.now() / 1000 - (20 - i) * 60,
+                  (Math.random() * 100).toFixed(2)
+                ])
+              }
+            ]
+          },
+          query: query,
+          metadata: {
+            timeRange: "1h",
+            step: "1m",
+            type: selectedPage
+          }
+        };
+      }
 
       setQueryResults(prev => 
         prev.map(result => 
           result.id === newResult.id 
-            ? { ...result, data: mockData }
+            ? { ...result, data: responseData }
             : result
         )
       );
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Query execution error:', error);
+      const errorMessage = selectedPage === 'metrics' 
+        ? `Prometheus query failed: ${error.message || 'Unknown error'}`
+        : `${selectedPage} query failed: ${error.message || 'Unknown error'}`;
+        
       setQueryResults(prev => 
         prev.map(result => 
           result.id === newResult.id 
-            ? { ...result, error: 'Failed to execute query' }
+            ? { ...result, error: errorMessage }
             : result
         )
       );
@@ -85,15 +210,46 @@ const MainContent: React.FC = () => {
     <div className="observability-platform">
       <div className="platform-header">
         <div className="header-content">
-          <h1>HolmesGPT Observability</h1>
-          <p>Query and visualize your metrics, logs, and traces</p>
+          <h1>HolmesGPT {selectedPage.charAt(0).toUpperCase() + selectedPage.slice(1)}</h1>
+          <p>
+            {selectedPage === 'metrics' && 'Query and visualize your application metrics and performance data'}
+            {selectedPage === 'logs' && 'Search and analyze your application logs and events'}
+            {selectedPage === 'traces' && 'Explore distributed traces and request flows'}
+          </p>
         </div>
       </div>
+
+      {selectedPage === 'metrics' && (
+        <div className="connection-status-bar">
+          <div className="connection-info">
+            <span className="connection-label">Prometheus:</span>
+            <span className="connection-url">{prometheusUrl}</span>
+            <div className={`connection-indicator ${prometheusStatus}`}>
+              <span className="status-dot"></span>
+              <span className="status-text">
+                {prometheusStatus === 'checking' && 'Checking...'}
+                {prometheusStatus === 'connected' && 'Connected'}
+                {prometheusStatus === 'disconnected' && 'Disconnected'}
+              </span>
+            </div>
+          </div>
+          {prometheusStatus === 'disconnected' && (
+            <button 
+              className="retry-connection-btn"
+              onClick={checkPrometheusConnection}
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="query-section">
         <div className="query-input-container">
           <label htmlFor="query-input" className="query-label">
-            Query
+            {selectedPage === 'metrics' && 'Metrics Query'}
+            {selectedPage === 'logs' && 'Log Query'}
+            {selectedPage === 'traces' && 'Trace Query'}
           </label>
           <div className="query-input-wrapper">
             <textarea
@@ -102,7 +258,13 @@ const MainContent: React.FC = () => {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Enter your query (e.g., cpu_usage, memory_usage, http_requests_total)..."
+              placeholder={
+                selectedPage === 'metrics' 
+                  ? "Enter PromQL query (e.g., cpu_usage, memory_usage, http_requests_total)..."
+                  : selectedPage === 'logs'
+                  ? "Enter log search query (e.g., level:error, service:api, message:timeout)..."
+                  : "Enter trace query (e.g., service:checkout, operation:payment, duration:>1s)..."
+              }
               rows={3}
             />
             <div className="query-actions">
@@ -142,7 +304,11 @@ const MainContent: React.FC = () => {
               <div key={result.id} className="result-item">
                 <div className="result-header">
                   <div className="result-info">
-                    <h4 className="result-query">{result.query}</h4>
+                    <h4 className="result-title">
+                      {selectedPage === 'metrics' ? '📊 Metrics Result' : 
+                       selectedPage === 'logs' ? '📝 Logs Result' : 
+                       '🔍 Traces Result'}
+                    </h4>
                     <span className="result-timestamp">
                       {result.timestamp.toLocaleTimeString()}
                     </span>

@@ -484,8 +484,9 @@ const ChatAssistant: React.FC = () => {
       
       const newWidth = window.innerWidth - e.clientX;
       const minWidth = 250;
+      const maxWidth = window.innerWidth * 0.8; // Max 80% of window width
       
-      if (newWidth >= minWidth) {
+      if (newWidth >= minWidth && newWidth <= maxWidth) {
         setWidth(newWidth);
       }
     };
