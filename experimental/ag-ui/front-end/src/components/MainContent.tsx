@@ -1108,9 +1108,9 @@ const MainContent: React.FC<MainContentProps> = ({
               onKeyDown={handleKeyDown}
               placeholder={
                 selectedPage === 'metrics' 
-                  ? "Enter PromQL query (e.g., cpu_usage, memory_usage, http_requests_total)..."
+                  ? "Enter PromQL query (e.g., cpu_usage, memory_usage, http_requests_total)...\n\nOr use Prometheus Series Explorer above to build your query"
                   : selectedPage === 'logs'
-                  ? "Enter PPL query (e.g., source=logs-* | head 10) - Note: PPL plugin may not be available on all AWS clusters..."
+                  ? "Enter PPL query (e.g., source=logs-* | head 10)...\n\nOr use OpenSearch Indices Explorer above to build your query\n\nNote: PPL plugin may not be available on all AWS clusters"
                   : "Enter trace query (e.g., service:checkout, operation:payment, duration:>1s)..."
               }
               rows={3}
