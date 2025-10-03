@@ -13,14 +13,26 @@ interface ContextItem {
 
 const App: React.FC = () => {
   const [selectedPage, setSelectedPage] = useState<ObservabilityPage>('metrics');
-  const [initialQuery, setInitialQuery] = useState<string>('');
   const [pageContext, setPageContext] = useState<ContextItem[]>([]);
   const [triggerQuery, setTriggerQuery] = useState<string | null>(null);
+  
+  // Store separate queries for each page
+  const [pageQueries, setPageQueries] = useState<Record<ObservabilityPage, string>>({
+    metrics: '',
+    logs: '',
+    traces: ''
+  });
 
   // Handle PromQL query execution from ChatAssistant
   const handleExecutePromQLQuery = (query: string) => {
     // Navigate to metrics page
     setSelectedPage('metrics');
+    
+    // Store the query for metrics page
+    setPageQueries(prev => ({
+      ...prev,
+      metrics: query
+    }));
     
     // Update URL to reflect the change
     const urlParams = new URLSearchParams(window.location.search);
@@ -30,7 +42,6 @@ const App: React.FC = () => {
     window.history.replaceState({}, '', newUrl);
     
     // Set the query to be executed
-    setInitialQuery(query);
     setTriggerQuery(query);
   };
 
@@ -38,6 +49,14 @@ const App: React.FC = () => {
   const clearTriggerQuery = () => {
     setTriggerQuery(null);
   };
+
+  // Handle query updates from MainContent
+  const handleQueryUpdate = React.useCallback((page: ObservabilityPage, query: string) => {
+    setPageQueries(prev => ({
+      ...prev,
+      [page]: query
+    }));
+  }, []); // No dependencies needed since setPageQueries is stable
 
   // Read URL parameters on mount
   useEffect(() => {
@@ -56,9 +75,17 @@ const App: React.FC = () => {
       window.history.replaceState({}, '', newUrl);
     }
 
-    // Set initial query from URL parameter
+    // Set initial query from URL parameter for the current page
     if (queryParam) {
-      setInitialQuery(decodeURIComponent(queryParam));
+      const decodedQuery = decodeURIComponent(queryParam);
+      const currentPage = (appParam && ['metrics', 'logs', 'traces'].includes(appParam)) 
+        ? appParam as ObservabilityPage 
+        : 'metrics';
+      
+      setPageQueries(prev => ({
+        ...prev,
+        [currentPage]: decodedQuery
+      }));
     }
   }, []);
 
@@ -70,7 +97,14 @@ const App: React.FC = () => {
     const urlParams = new URLSearchParams(window.location.search);
     urlParams.set('app', page);
     
-    // Preserve existing query parameter if present
+    // Set the query parameter to the stored query for this page
+    const storedQuery = pageQueries[page];
+    if (storedQuery) {
+      urlParams.set('query', encodeURIComponent(storedQuery));
+    } else {
+      urlParams.delete('query');
+    }
+    
     const newUrl = `${window.location.pathname}?${urlParams.toString()}`;
     window.history.replaceState({}, '', newUrl);
   };
@@ -107,10 +141,11 @@ const App: React.FC = () => {
       </div>
       <MainContent 
         selectedPage={selectedPage} 
-        initialQuery={initialQuery} 
+        initialQuery={pageQueries[selectedPage]} 
         triggerQuery={triggerQuery}
         onContextChange={setPageContext}
         onQueryTriggered={clearTriggerQuery}
+        onQueryUpdate={handleQueryUpdate}
       />
       <ErrorBoundary>
         <ChatAssistant 

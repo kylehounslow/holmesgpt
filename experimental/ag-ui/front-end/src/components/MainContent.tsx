@@ -22,6 +22,7 @@ interface MainContentProps {
   triggerQuery?: string | null;
   onContextChange?: (context: ContextItem[]) => void;
   onQueryTriggered?: () => void;
+  onQueryUpdate?: (page: ObservabilityPage, query: string) => void;
 }
 
 const MainContent: React.FC<MainContentProps> = ({ 
@@ -29,14 +30,25 @@ const MainContent: React.FC<MainContentProps> = ({
   initialQuery = '', 
   triggerQuery,
   onContextChange,
-  onQueryTriggered 
+  onQueryTriggered,
+  onQueryUpdate
 }) => {
   const [query, setQuery] = useState(initialQuery);
-  const [currentResult, setCurrentResult] = useState<QueryResult | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
+  
+  // Store separate results for each page
+  const [pageResults, setPageResults] = useState<Record<ObservabilityPage, QueryResult | null>>({
+    metrics: null,
+    logs: null,
+    traces: null
+  });
+  
+  // Get current page's result
+  const currentResult = pageResults[selectedPage];
   const [prometheusStatus, setPrometheusStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [prometheusUrl] = useState(process.env.PROMETHEUS_URL || 'http://localhost:9090');
   const [isMaximized, setIsMaximized] = useState(false);
+  const isUpdatingFromParent = React.useRef(false);
 
   // Update context for ChatAssistant
   const updateContext = React.useCallback(() => {
@@ -135,10 +147,22 @@ const MainContent: React.FC<MainContentProps> = ({
 
   // Update query when initialQuery changes
   React.useEffect(() => {
-    if (initialQuery && initialQuery !== query) {
+    if (initialQuery !== undefined) {
+      isUpdatingFromParent.current = true;
       setQuery(initialQuery);
+      // Reset flag after state update
+      setTimeout(() => {
+        isUpdatingFromParent.current = false;
+      }, 0);
     }
-  }, [initialQuery]);
+  }, [initialQuery]); // Only depend on initialQuery, not query
+
+  // Notify parent when query changes (but only from user input)
+  React.useEffect(() => {
+    if (onQueryUpdate && !isUpdatingFromParent.current) {
+      onQueryUpdate(selectedPage, query);
+    }
+  }, [query, selectedPage]); // Remove onQueryUpdate from dependencies to prevent loop
 
   // Update URL when query changes (debounced)
   React.useEffect(() => {
@@ -222,7 +246,10 @@ const MainContent: React.FC<MainContentProps> = ({
     };
 
     setIsExecuting(true);
-    setCurrentResult(newResult);
+    setPageResults(prev => ({
+      ...prev,
+      [selectedPage]: newResult
+    }));
 
     try {
       let responseData: any;
@@ -254,18 +281,24 @@ const MainContent: React.FC<MainContentProps> = ({
         };
       }
 
-      setCurrentResult(prev => prev ? { ...prev, data: responseData } : null);
+      setPageResults(prev => ({
+        ...prev,
+        [selectedPage]: prev[selectedPage] ? { ...prev[selectedPage], data: responseData } : null
+      }));
     } catch (error: any) {
       console.error('Query execution error:', error);
       const errorMessage = selectedPage === 'metrics' 
         ? `Prometheus query failed: ${error.message || 'Unknown error'}`
         : `${selectedPage} query failed: ${error.message || 'Unknown error'}`;
         
-      setCurrentResult(prev => prev ? { 
-        ...prev, 
-        error: errorMessage,
-        errorDetails: error.responseData || null
-      } : null);
+      setPageResults(prev => ({
+        ...prev,
+        [selectedPage]: prev[selectedPage] ? { 
+          ...prev[selectedPage], 
+          error: errorMessage,
+          errorDetails: error.responseData || null
+        } : null
+      }));
     } finally {
       setIsExecuting(false);
     }
@@ -278,7 +311,10 @@ const MainContent: React.FC<MainContentProps> = ({
   };
 
   const clearResults = () => {
-    setCurrentResult(null);
+    setPageResults(prev => ({
+      ...prev,
+      [selectedPage]: null
+    }));
   };
 
   // Handle trigger query execution from ChatAssistant
