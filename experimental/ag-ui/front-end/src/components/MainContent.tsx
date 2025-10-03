@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import GraphVisualization from './GraphVisualization';
+import LogsVisualization from './LogsVisualization';
 type ObservabilityPage = 'metrics' | 'logs' | 'traces';
 
 interface QueryResult {
@@ -36,6 +37,10 @@ const MainContent: React.FC<MainContentProps> = ({
   const [query, setQuery] = useState(initialQuery);
   const [isExecuting, setIsExecuting] = useState(false);
   
+  // Track current query execution to prevent race conditions
+  const currentQueryRef = React.useRef<string>('');
+  const abortControllerRef = React.useRef<AbortController | null>(null);
+  
   // Store separate results for each page
   const [pageResults, setPageResults] = useState<Record<ObservabilityPage, QueryResult | null>>({
     metrics: null,
@@ -46,9 +51,92 @@ const MainContent: React.FC<MainContentProps> = ({
   // Get current page's result
   const currentResult = pageResults[selectedPage];
   const [prometheusStatus, setPrometheusStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
-  const [prometheusUrl] = useState(process.env.PROMETHEUS_URL || 'http://localhost:9090');
+  const [prometheusUrl] = useState(process.env.REACT_APP_PROMETHEUS_URL || 'http://localhost:9090');
+  const [opensearchStatus, setOpensearchStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [opensearchUrl] = useState(process.env.REACT_APP_OPENSEARCH_URL || 'http://localhost:9200');
+  const [opensearchUser] = useState(process.env.REACT_APP_OPENSEARCH_USER);
+  const [opensearchPassword] = useState(process.env.REACT_APP_OPENSEARCH_PASSWORD);
+  
+  // Indices discovery state
+  const [availableIndices, setAvailableIndices] = useState<string[]>([]);
+  const [showIndices, setShowIndices] = useState(false);
+  const [loadingIndices, setLoadingIndices] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+
+  // Helper function to create OpenSearch auth headers
+  const getOpensearchHeaders = React.useCallback(() => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (opensearchUser && opensearchPassword) {
+      const credentials = btoa(`${opensearchUser}:${opensearchPassword}`);
+      headers['Authorization'] = `Basic ${credentials}`;
+    }
+
+    return headers;
+  }, [opensearchUser, opensearchPassword]);
+
+  // Fetch indices count automatically when connected
+  const fetchIndicesCount = React.useCallback(async () => {
+    if (selectedPage !== 'logs' || opensearchStatus !== 'connected') return;
+
+    try {
+      const response = await fetch(`${opensearchUrl}/_cat/indices?format=json&h=index`, {
+        method: 'GET',
+        headers: getOpensearchHeaders(),
+        signal: AbortSignal.timeout(10000), // 10 second timeout
+      });
+
+      if (response.ok) {
+        const indices = await response.json();
+        const indexNames = indices
+          .map((idx: any) => idx.index)
+          .filter((name: string) => !name.startsWith('.')) // Filter out system indices
+          .sort();
+        
+        setAvailableIndices(indexNames);
+      } else {
+        console.error('Failed to fetch indices count:', response.status, response.statusText);
+        setAvailableIndices([]);
+      }
+    } catch (error) {
+      console.error('Error fetching indices count:', error);
+      setAvailableIndices([]);
+    }
+  }, [opensearchUrl, selectedPage, opensearchStatus, getOpensearchHeaders]);
+
+  // Toggle available indices display
+  const toggleAvailableIndices = React.useCallback(async () => {
+    if (selectedPage !== 'logs' || opensearchStatus !== 'connected') return;
+
+    // If indices are currently shown, just hide them
+    if (showIndices) {
+      setShowIndices(false);
+      return;
+    }
+
+    // If we already have indices cached, just show them
+    if (availableIndices.length > 0) {
+      setShowIndices(true);
+      return;
+    }
+
+    // Otherwise, fetch indices from OpenSearch (this shouldn't happen often now)
+    setLoadingIndices(true);
+    try {
+      await fetchIndicesCount();
+      setShowIndices(true);
+    } finally {
+      setLoadingIndices(false);
+    }
+  }, [selectedPage, opensearchStatus, showIndices, availableIndices.length, fetchIndicesCount]);
+
   const isUpdatingFromParent = React.useRef(false);
+  
+  // Retry delay state
+  const prometheusRetryTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const opensearchRetryTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Update context for ChatAssistant
   const updateContext = React.useCallback(() => {
@@ -73,19 +161,27 @@ const MainContent: React.FC<MainContentProps> = ({
     // Add current result info if exists
     if (currentResult) {
       if (currentResult.error) {
+        let errorValue = currentResult.error;
+        
+        // For logs, include detailed error response in the same entry
+        if (selectedPage === 'logs' && currentResult.errorDetails) {
+          errorValue += `\n\nDetailed error response: ${JSON.stringify(currentResult.errorDetails, null, 2)}`;
+        }
+        
         context.push({
           description: `${selectedPage} query error`,
-          value: currentResult.error
+          value: errorValue
         });
         
-        // Add detailed error response if available
-        if (currentResult.errorDetails) {
+        // Add detailed error response for non-logs pages only
+        if (selectedPage !== 'logs' && currentResult.errorDetails) {
           context.push({
             description: `${selectedPage} error response`,
             value: JSON.stringify(currentResult.errorDetails)
           });
         }
-      } else if (currentResult.data) {
+      } else if (currentResult.data && selectedPage !== 'logs') {
+        // Only add success status for non-logs pages
         context.push({
           description: `${selectedPage} query status`,
           value: "Success - data available for visualization"
@@ -93,7 +189,7 @@ const MainContent: React.FC<MainContentProps> = ({
       }
     }
 
-    // Add Prometheus connection status for metrics page
+    // Add connection status for metrics page only
     if (selectedPage === 'metrics') {
       context.push({
         description: "Prometheus connection status",
@@ -109,23 +205,57 @@ const MainContent: React.FC<MainContentProps> = ({
     updateContext();
   }, [updateContext]);
 
+  // Auto-fetch indices count when OpenSearch connection becomes healthy
+  React.useEffect(() => {
+    if (selectedPage === 'logs') {
+      if (opensearchStatus === 'connected' && availableIndices.length === 0) {
+        fetchIndicesCount();
+      } else if (opensearchStatus === 'disconnected') {
+        // Clear indices when connection is lost
+        setAvailableIndices([]);
+        setShowIndices(false);
+      }
+    }
+  }, [selectedPage, opensearchStatus, availableIndices.length, fetchIndicesCount]);
+
   // Check Prometheus connection status
-  const checkPrometheusConnection = React.useCallback(async () => {
+  const checkPrometheusConnection = React.useCallback(async (isRetry = false) => {
     if (selectedPage !== 'metrics') {
       setPrometheusStatus('connected'); // Don't check for non-metrics pages
       return;
     }
 
+    // Prevent multiple concurrent checks
+    if (prometheusStatus === 'checking' && !isRetry) {
+      console.log('Prometheus check already in progress, skipping');
+      return;
+    }
+
+    // Clear any existing retry timeout
+    if (prometheusRetryTimeoutRef.current) {
+      clearTimeout(prometheusRetryTimeoutRef.current);
+      prometheusRetryTimeoutRef.current = null;
+    }
+
+    // Add delay for retries to prevent overwhelming the server
+    if (isRetry) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay for retries
+    }
+
     try {
       setPrometheusStatus('checking');
+      console.log('Checking Prometheus connection...', prometheusUrl);
       const response = await fetch(`${prometheusUrl}/api/v1/label/__name__/values?limit=1`, {
         method: 'GET',
         signal: AbortSignal.timeout(5000), // 5 second timeout
       });
       
+      console.log('Prometheus response:', response.status, response.ok);
       if (response.ok) {
+        console.log('Setting Prometheus status to connected');
         setPrometheusStatus('connected');
       } else {
+        console.log('Setting Prometheus status to disconnected');
         setPrometheusStatus('disconnected');
       }
     } catch (error) {
@@ -134,16 +264,74 @@ const MainContent: React.FC<MainContentProps> = ({
     }
   }, [prometheusUrl, selectedPage]);
 
+  // Check OpenSearch connection status
+  const checkOpensearchConnection = React.useCallback(async (isRetry = false) => {
+    if (selectedPage !== 'logs') {
+      setOpensearchStatus('connected'); // Don't check for non-logs pages
+      return;
+    }
+
+    // Clear any existing retry timeout
+    if (opensearchRetryTimeoutRef.current) {
+      clearTimeout(opensearchRetryTimeoutRef.current);
+      opensearchRetryTimeoutRef.current = null;
+    }
+
+    // Add delay for retries to prevent overwhelming the server
+    if (isRetry) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay for retries
+    }
+
+    try {
+      setOpensearchStatus('checking');
+      // Try basic cluster info first, then health endpoint
+      let response = await fetch(`${opensearchUrl}/`, {
+        method: 'GET',
+        headers: getOpensearchHeaders(),
+        signal: AbortSignal.timeout(5000), // 5 second timeout
+      });
+      
+      // If root endpoint fails, try cluster health
+      if (!response.ok) {
+        response = await fetch(`${opensearchUrl}/_cluster/health`, {
+          method: 'GET',
+          headers: getOpensearchHeaders(),
+          signal: AbortSignal.timeout(5000), // 5 second timeout
+        });
+      }
+      
+      if (response.ok) {
+        setOpensearchStatus('connected');
+      } else {
+        setOpensearchStatus('disconnected');
+      }
+    } catch (error) {
+      console.warn('OpenSearch connection check failed:', error);
+      setOpensearchStatus('disconnected');
+    }
+  }, [opensearchUrl, selectedPage, getOpensearchHeaders]);
+
   // Check connection on mount and when page changes
   React.useEffect(() => {
-    checkPrometheusConnection();
-    
-    // Check connection every 30 seconds for metrics page
+    // Initial connection checks
     if (selectedPage === 'metrics') {
-      const interval = setInterval(checkPrometheusConnection, 30000);
-      return () => clearInterval(interval);
+      checkPrometheusConnection();
+    } else if (selectedPage === 'logs') {
+      checkOpensearchConnection();
     }
-  }, [checkPrometheusConnection, selectedPage]);
+    
+    // Set up interval for active page only
+    let interval: NodeJS.Timeout | null = null;
+    if (selectedPage === 'metrics') {
+      interval = setInterval(() => checkPrometheusConnection(), 30000);
+    } else if (selectedPage === 'logs') {
+      interval = setInterval(() => checkOpensearchConnection(), 30000);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [selectedPage]); // Only depend on selectedPage
 
   // Update query when initialQuery changes
   React.useEffect(() => {
@@ -187,7 +375,7 @@ const MainContent: React.FC<MainContentProps> = ({
   }, [query]);
 
   const queryPrometheus = async (promqlQuery: string) => {
-    const prometheusUrl = process.env.PROMETHEUS_URL || 'http://localhost:9090';
+    const prometheusUrl = process.env.REACT_APP_PROMETHEUS_URL || 'http://localhost:9090';
     const endTime = Math.floor(Date.now() / 1000);
     const startTime = endTime - 3600; // 1 hour ago
     const step = 60; // 1 minute step
@@ -236,6 +424,75 @@ const MainContent: React.FC<MainContentProps> = ({
     }
   };
 
+  const queryOpensearch = async (pplQuery: string, signal?: AbortSignal) => {
+    const opensearchUrl = process.env.REACT_APP_OPENSEARCH_URL || 'http://localhost:9200';
+
+    try {
+      // First try PPL endpoint
+      const response = await fetch(`${opensearchUrl}/_plugins/_ppl`, {
+        method: 'POST',
+        headers: getOpensearchHeaders(),
+        body: JSON.stringify({
+          query: pplQuery
+        }),
+        signal: signal
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        // Check if it's a PPL plugin not available error (404 or 500)
+        if (response.status === 404 || response.status === 500) {
+          const error = new Error(`PPL plugin not available on this OpenSearch cluster (${response.status}). This AWS OpenSearch cluster may not have PPL enabled.`);
+          (error as any).responseData = { 
+            suggestion: "AWS OpenSearch clusters may not have PPL plugin enabled by default. Consider using OpenSearch Query DSL or enabling PPL plugin.",
+            pplQuery: pplQuery,
+            alternativeEndpoint: `${opensearchUrl}/_search`,
+            statusCode: response.status
+          };
+          throw error;
+        }
+        
+        // Create detailed error with response data
+        const error = new Error(`OpenSearch query failed: ${response.status} ${response.statusText}`);
+        (error as any).responseData = result;
+        (error as any).statusCode = response.status;
+        throw error;
+      }
+      
+      if (result.error) {
+        // Handle specific PPL errors
+        if (result.error.type === 'NoSuchElementException') {
+          const error = new Error(`PPL query error: No data found. Check your index name and query syntax.`);
+          (error as any).responseData = result;
+          (error as any).errorType = result.error.type;
+          (error as any).suggestion = "Try: source=your_actual_index_name | head 10 (replace 'your_actual_index_name' with an actual index)";
+          throw error;
+        }
+        
+        // Create detailed error with OpenSearch error response
+        const error = new Error(`OpenSearch PPL error: ${result.error.reason || 'Unknown error'}`);
+        (error as any).responseData = result;
+        (error as any).errorType = result.error.type;
+        throw error;
+      }
+
+      return {
+        title: "Logs Visualization",
+        data: result,
+        query: pplQuery,
+        metadata: {
+          timeRange: "query-dependent",
+          source: "OpenSearch PPL",
+          resultType: "logs"
+        }
+      };
+    } catch (error) {
+      console.error('OpenSearch query error:', error);
+      throw error;
+    }
+  };
+
   const handleExecuteQuery = async () => {
     if (!query.trim() || isExecuting) return;
 
@@ -257,8 +514,11 @@ const MainContent: React.FC<MainContentProps> = ({
       if (selectedPage === 'metrics') {
         // Query Prometheus for metrics
         responseData = await queryPrometheus(query.trim());
+      } else if (selectedPage === 'logs') {
+        // Query OpenSearch for logs
+        responseData = await queryOpensearch(query.trim());
       } else {
-        // For logs and traces, use mock data for now
+        // For traces, use mock data for now
         responseData = {
           title: `${selectedPage.charAt(0).toUpperCase() + selectedPage.slice(1)} Visualization`,
           data: {
@@ -351,6 +611,18 @@ const MainContent: React.FC<MainContentProps> = ({
     };
   }, [isMaximized]);
 
+  // Cleanup timeout refs on unmount
+  React.useEffect(() => {
+    return () => {
+      if (prometheusRetryTimeoutRef.current) {
+        clearTimeout(prometheusRetryTimeoutRef.current);
+      }
+      if (opensearchRetryTimeoutRef.current) {
+        clearTimeout(opensearchRetryTimeoutRef.current);
+      }
+    };
+  }, []);
+
   return (
     <div className="observability-platform">
       <div className="platform-header">
@@ -381,11 +653,108 @@ const MainContent: React.FC<MainContentProps> = ({
           {prometheusStatus === 'disconnected' && (
             <button 
               className="retry-connection-btn"
-              onClick={checkPrometheusConnection}
+              onClick={() => checkPrometheusConnection(true)}
             >
               Retry
             </button>
           )}
+        </div>
+      )}
+
+      {selectedPage === 'logs' && (
+        <div className="connection-status-bar">
+          <div className="connection-info">
+            <span className="connection-label">OpenSearch:</span>
+            <span className="connection-url">{opensearchUrl}</span>
+            <div className={`connection-indicator ${opensearchStatus}`}>
+              <span className="status-dot"></span>
+              <span className="status-text">
+                {opensearchStatus === 'checking' && 'Checking...'}
+                {opensearchStatus === 'connected' && 'Connected'}
+                {opensearchStatus === 'disconnected' && 'Disconnected'}
+              </span>
+            </div>
+          </div>
+          {opensearchStatus === 'disconnected' && (
+            <button 
+              className="retry-connection-btn"
+              onClick={() => checkOpensearchConnection(true)}
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Indices Discovery Section - Only show for logs page when connected */}
+      {selectedPage === 'logs' && opensearchStatus === 'connected' && (
+        <div className="indices-discovery-section">
+          <button 
+            className="show-indices-btn"
+            onClick={toggleAvailableIndices}
+            disabled={loadingIndices}
+          >
+            {loadingIndices ? (
+              <>
+                <span className="loading-spinner"></span>
+                Loading Indices...
+              </>
+            ) : showIndices ? (
+              <>
+                📂 Hide Indices
+                {availableIndices.length > 0 && (
+                  <span className="indices-count-badge">{availableIndices.length}</span>
+                )}
+                <span className="dropdown-arrow up">▲</span>
+              </>
+            ) : (
+              <>
+                📂 {availableIndices.length > 0 ? `Show ${availableIndices.length} Indices` : 'Show Available Indices'}
+                <span className="dropdown-arrow">▼</span>
+              </>
+            )}
+          </button>
+          <div className="indices-discovery-header">
+            <p>
+              {availableIndices.length > 0 
+                ? `Found ${availableIndices.length} ${availableIndices.length === 1 ? 'index' : 'indices'} in your OpenSearch cluster`
+                : 'Discover what indices are available in your OpenSearch cluster'
+              }
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Available Indices Display */}
+      {selectedPage === 'logs' && showIndices && availableIndices.length > 0 && (
+        <div className="indices-display">
+          <div className="indices-header">
+            <h4>Select an Index</h4>
+            <button 
+              className="close-indices-btn"
+              onClick={() => setShowIndices(false)}
+            >
+              ✕
+            </button>
+          </div>
+          <div className="indices-help">
+            💡 Click on an index name to use it in a PPL query
+          </div>
+          <div className="indices-list">
+            {availableIndices.map((index, i) => (
+              <div 
+                key={i} 
+                className="index-item"
+                onClick={() => {
+                  setQuery(`source=${index} | head 10`);
+                  setShowIndices(false);
+                }}
+                title={`Click to use in query: source=${index} | head 10`}
+              >
+                {index}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -407,7 +776,7 @@ const MainContent: React.FC<MainContentProps> = ({
                 selectedPage === 'metrics' 
                   ? "Enter PromQL query (e.g., cpu_usage, memory_usage, http_requests_total)..."
                   : selectedPage === 'logs'
-                  ? "Enter log search query (e.g., level:error, service:api, message:timeout)..."
+                  ? "Enter PPL query (e.g., source=logs-* | head 10) - Note: PPL plugin may not be available on all AWS clusters..."
                   : "Enter trace query (e.g., service:checkout, operation:payment, duration:>1s)..."
               }
               rows={3}
@@ -495,8 +864,56 @@ const MainContent: React.FC<MainContentProps> = ({
                   )}
                 </div>
               ) : currentResult.data ? (
-                <div className="graph-container">
-                  <GraphVisualization data={currentResult.data} />
+                <div className="visualization-container">
+                  {/* Detect data type and render appropriate visualization */}
+                  {/* Check if data is already structured (has title, data, query) or raw (has schema, datarows) */}
+                  {(currentResult.data.schema && currentResult.data.datarows) || 
+                   (currentResult.data.data && currentResult.data.data.schema && currentResult.data.data.datarows) ? (
+                    <LogsVisualization 
+                      data={
+                        currentResult.data.title ? 
+                          // Data is already structured
+                          currentResult.data :
+                          // Data is raw, need to structure it
+                          {
+                            title: selectedPage === 'logs' ? 'Logs Visualization' : 'Data Visualization',
+                            query: currentResult.query,
+                            data: currentResult.data,
+                            metadata: {
+                              timestamp: Date.now() / 1000,
+                              source: 'OpenSearch PPL'
+                            }
+                          }
+                      } 
+                    />
+                  ) : (currentResult.data.result !== undefined) || 
+                       (currentResult.data.data && currentResult.data.data.result !== undefined) ? (
+                    <GraphVisualization 
+                      data={
+                        currentResult.data.title ? 
+                          // Data is already structured
+                          currentResult.data :
+                          // Data is raw, need to structure it
+                          {
+                            title: selectedPage === 'metrics' ? 'Metrics Visualization' : 'Data Visualization',
+                            query: currentResult.query,
+                            data: currentResult.data,
+                            metadata: {
+                              timestamp: Date.now() / 1000,
+                              source: 'Prometheus'
+                            }
+                          }
+                      }
+                    />
+                  ) : (
+                    <div className="unsupported-data">
+                      <span className="error-icon">⚠️</span>
+                      <div className="error-text">Unsupported data format</div>
+                      <div className="error-details">
+                        <pre>{JSON.stringify(currentResult.data, null, 2)}</pre>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="loading-placeholder">
@@ -533,7 +950,51 @@ const MainContent: React.FC<MainContentProps> = ({
               </button>
             </div>
             <div className="graph-modal-content">
-              <GraphVisualization data={currentResult.data} />
+              {/* Detect data type and render appropriate visualization */}
+              {(currentResult.data.schema && currentResult.data.datarows) || 
+               (currentResult.data.data && currentResult.data.data.schema && currentResult.data.data.datarows) ? (
+                <LogsVisualization 
+                  data={
+                    currentResult.data.title ? 
+                      // Data is already structured
+                      currentResult.data :
+                      // Data is raw, need to structure it
+                      {
+                        title: selectedPage === 'logs' ? 'Logs Visualization' : 'Data Visualization',
+                        query: currentResult.query,
+                        data: currentResult.data,
+                        metadata: {
+                          timestamp: Date.now() / 1000,
+                          source: 'OpenSearch PPL'
+                        }
+                      }
+                  } 
+                />
+              ) : (currentResult.data.result !== undefined) || 
+                   (currentResult.data.data && currentResult.data.data.result !== undefined) ? (
+                <GraphVisualization 
+                  data={
+                    currentResult.data.title ? 
+                      // Data is already structured
+                      currentResult.data :
+                      // Data is raw, need to structure it
+                      {
+                        title: selectedPage === 'metrics' ? 'Metrics Visualization' : 'Data Visualization',
+                        query: currentResult.query,
+                        data: currentResult.data,
+                        metadata: {
+                          timestamp: Date.now() / 1000,
+                          source: 'Prometheus'
+                        }
+                      }
+                  }
+                />
+              ) : (
+                <div className="unsupported-data">
+                  <span className="error-icon">⚠️</span>
+                  <div className="error-text">Unsupported data format</div>
+                </div>
+              )}
             </div>
           </div>
         </div>

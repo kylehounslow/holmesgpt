@@ -29,9 +29,10 @@ interface ContextItem {
 interface ChatAssistantProps {
   pageContext?: ContextItem[];
   onExecutePromQLQuery?: (query: string) => void;
+  onExecutePPLQuery?: (query: string) => void;
 }
 
-const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecutePromQLQuery }) => {
+const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecutePromQLQuery, onExecutePPLQuery }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -155,6 +156,14 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
             timestamp: new Date()
           };
           setMessages(prev => [...prev, toolMessage]);
+        } else if (params.event.toolCallName === 'execute_ppl_query') {
+          const toolMessage: ChatMessage = {
+            id: 'tool-' + params.event.toolCallId,
+            text: '🔍 Executing PPL query...',
+            sender: 'assistant',
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, toolMessage]);
         }
       },
 
@@ -269,6 +278,69 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
             const errorMessage: ChatMessage = {
               id: 'tool-' + params.event.toolCallId,
               text: `❌ Failed to execute PromQL query: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              sender: 'assistant',
+              timestamp: new Date()
+            };
+            
+            setMessages(prev => 
+              prev.map(msg => 
+                msg.id === 'tool-' + params.event.toolCallId 
+                  ? errorMessage 
+                  : msg
+              )
+            );
+          }
+        } else if (toolCallInfo?.name === 'execute_ppl_query') {
+          try {
+            // Parse accumulated arguments
+            let args: any = {};
+            if (accumulatedArgsString) {
+              try {
+                args = JSON.parse(accumulatedArgsString);
+              } catch (parseError) {
+                console.warn('Could not parse accumulated args as JSON:', parseError);
+                args = {};
+              }
+            }
+            
+            console.log('Execute PPL query parsed args:', args);
+            
+            if (args.query && onExecutePPLQuery) {
+              // Execute the PPL query
+              onExecutePPLQuery(args.query);
+              
+              // Update the tool message to show success
+              const successMessage: ChatMessage = {
+                id: 'tool-' + params.event.toolCallId,
+                text: `✅ Navigated to Logs page and executed query: \`${args.query}\``,
+                sender: 'assistant',
+                timestamp: new Date()
+              };
+              
+              setMessages(prev => 
+                prev.map(msg => 
+                  msg.id === 'tool-' + params.event.toolCallId 
+                    ? successMessage 
+                    : msg
+                )
+              );
+            } else {
+              const missingQuery = !args.query;
+              const missingCallback = !onExecutePPLQuery;
+              const errorDetails = [];
+              
+              if (missingQuery) errorDetails.push('query parameter');
+              if (missingCallback) errorDetails.push('callback function');
+              
+              throw new Error(`Missing: ${errorDetails.join(', ')}. Args: ${JSON.stringify(args)}`);
+            }
+          } catch (error) {
+            console.error('Error executing PPL query:', error);
+            
+            // Update the tool message to show error
+            const errorMessage: ChatMessage = {
+              id: 'tool-' + params.event.toolCallId,
+              text: `❌ Failed to execute PPL query: ${error instanceof Error ? error.message : 'Unknown error'}`,
               sender: 'assistant',
               timestamp: new Date()
             };
