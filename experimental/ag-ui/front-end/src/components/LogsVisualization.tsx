@@ -124,6 +124,58 @@ const LogsVisualization: React.FC<LogsVisualizationProps> = ({ data }) => {
 
   const { schema, datarows, total, size } = logData;
 
+  // Reorder columns to put timestamp columns first
+  const reorderColumnsForTimestamp = () => {
+    const timestampColumns: Array<{index: number, column: any, priority: number}> = [];
+    const otherColumns: Array<{index: number, column: any}> = [];
+    
+    schema.forEach((column, index) => {
+      const columnName = column.name.toLowerCase();
+      const isTimestamp = column.type === 'timestamp' || 
+                         columnName.includes('time') || 
+                         columnName.includes('timestamp') ||
+                         columnName === '@timestamp';
+      
+      if (isTimestamp) {
+        // Priority: "time" gets highest priority (0), then alphabetical
+        let priority = 1;
+        if (columnName === 'time') priority = 0;
+        else if (columnName === '@timestamp') priority = 0.5;
+        
+        timestampColumns.push({ index, column, priority });
+      } else {
+        otherColumns.push({ index, column });
+      }
+    });
+    
+    // Sort timestamp columns by priority, then alphabetically
+    timestampColumns.sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return a.column.name.localeCompare(b.column.name);
+    });
+    
+    // Create new column order
+    const reorderedColumns = [
+      ...timestampColumns.map(item => item.column),
+      ...otherColumns.map(item => item.column)
+    ];
+    
+    // Create index mapping for data reordering
+    const indexMapping = [
+      ...timestampColumns.map(item => item.index),
+      ...otherColumns.map(item => item.index)
+    ];
+    
+    return { reorderedColumns, indexMapping };
+  };
+
+  const { reorderedColumns, indexMapping } = reorderColumnsForTimestamp();
+  
+  // Reorder data rows according to the new column order
+  const reorderedDatarows = datarows.map(row => 
+    indexMapping.map(originalIndex => row[originalIndex])
+  );
+
   return (
     <div className="logs-visualization">
       <div className="logs-container">
@@ -144,8 +196,8 @@ const LogsVisualization: React.FC<LogsVisualizationProps> = ({ data }) => {
                 onClick={() => {
                   // Simple CSV export functionality
                   const csvContent = [
-                    schema.map(col => col.name).join(','),
-                    ...datarows.map(row => 
+                    reorderedColumns.map(col => col.name).join(','),
+                    ...reorderedDatarows.map(row => 
                       row.map(cell => 
                         typeof cell === 'string' && cell.includes(',') 
                           ? `"${cell.replace(/"/g, '""')}"` 
@@ -173,7 +225,7 @@ const LogsVisualization: React.FC<LogsVisualizationProps> = ({ data }) => {
             <table className="log-table">
               <thead>
                 <tr>
-                  {schema.map((column, index) => (
+                  {reorderedColumns.map((column, index) => (
                     <th key={index} className={getColumnClass(column.name, column.type)}>
                       <div className="column-info">
                         <span className="column-name">{column.name}</span>
@@ -184,15 +236,15 @@ const LogsVisualization: React.FC<LogsVisualizationProps> = ({ data }) => {
                 </tr>
               </thead>
               <tbody>
-                {datarows.map((row, rowIndex) => (
+                {reorderedDatarows.map((row, rowIndex) => (
                   <tr key={rowIndex} className="log-row">
                     {row.map((cell, cellIndex) => (
                       <td 
                         key={cellIndex} 
                         className="log-cell"
-                        data-field={schema[cellIndex]?.name}
+                        data-field={reorderedColumns[cellIndex]?.name}
                       >
-                        {formatCellValue(cell, schema[cellIndex]?.type || 'string', schema[cellIndex]?.name || '')}
+                        {formatCellValue(cell, reorderedColumns[cellIndex]?.type || 'string', reorderedColumns[cellIndex]?.name || '')}
                       </td>
                     ))}
                   </tr>
