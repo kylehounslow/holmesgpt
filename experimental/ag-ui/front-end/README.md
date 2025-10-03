@@ -19,7 +19,7 @@ A React TypeScript application with integrated AG-UI chat assistant.
 2. Configure your agent endpoint:
    ```bash
    cp .env.example .env
-   # Edit .env to set your REACT_APP_AGENT_URL
+   # Edit .env to set your AGENT_URL
    ```
 
 3. Start the development server:
@@ -29,7 +29,7 @@ A React TypeScript application with integrated AG-UI chat assistant.
 
 ## Configuration
 
-The app expects an AG-UI compatible agent service running at the URL specified in `REACT_APP_AGENT_URL`. The agent should:
+The app expects an AG-UI compatible agent service running at the base URL specified in `AGENT_URL`. The chat endpoint will be accessed at `${AGENT_URL}/api/agui/chat`. The agent should:
 
 - Accept POST requests with `RunAgentInput` payload
 - Return Server-Sent Events (SSE) stream

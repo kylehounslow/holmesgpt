@@ -3,6 +3,7 @@ import { HttpAgent } from '@ag-ui/client';
 import ReactMarkdown from 'react-markdown';
 import GraphVisualization from './GraphVisualization';
 import './ChatAssistant.css';
+// Logo is now in public folder, accessed via public URL
 
 interface ChatMessage {
   id: string;
@@ -21,23 +22,17 @@ interface ChatMessage {
 type ConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
 
 const ChatAssistant: React.FC = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome-1',
-      text: "Hello! I'm your AI assistant. How can I help you today?",
-      sender: 'assistant',
-      timestamp: new Date()
-    }
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [width, setWidth] = useState(350);
+  const [width, setWidth] = useState(500);
   const [isResizing, setIsResizing] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [isThinking, setIsThinking] = useState(false);
   const [messageHistory, setMessageHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
+  const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
   const agentRef = useRef<HttpAgent | null>(null);
@@ -47,14 +42,32 @@ const ChatAssistant: React.FC = () => {
   const chatAssistantRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const initialMessageSentRef = useRef<boolean>(false);
+  const agentInitializedRef = useRef<boolean>(false);
 
   // Initialize the HttpAgent with error handling
   const initializeAgent = React.useCallback(() => {
+    // Prevent double initialization
+    if (agentInitializedRef.current) {
+      console.log('Agent already initialized, skipping...');
+      // If already initialized but not connected, try to send initial message
+      if (connectionStatus === 'connected' && !initialMessageSentRef.current) {
+        setTimeout(() => {
+          sendInitialMessage();
+        }, 100);
+      }
+      return;
+    }
+    
     try {
+      agentInitializedRef.current = true;
       setConnectionStatus('connecting');
       
+      const agentUrl = `${process.env.AGENT_URL || 'http://localhost:5050'}/api/agui/chat`;
+      console.log('Initializing agent with URL:', agentUrl);
+      
       agentRef.current = new HttpAgent({
-        url: process.env.REACT_APP_AGENT_URL || 'http://localhost:5050/api/agui/chat',
+        url: agentUrl,
         threadId: threadIdRef.current,
         headers: {
           'Content-Type': 'application/json',
@@ -219,11 +232,17 @@ const ChatAssistant: React.FC = () => {
     };
 
       agentRef.current.subscribe(subscriber);
+      console.log('Agent subscribed, setting status to connected');
       setConnectionStatus('connected');
+      
+      // Fetch model information after successful connection
+      fetchModel();
       
     } catch (error) {
       console.error('Failed to initialize agent:', error);
       setConnectionStatus('error');
+      setCurrentModel(null);
+      agentInitializedRef.current = false; // Reset flag on error
       scheduleReconnect();
     }
   }, []);
@@ -231,8 +250,8 @@ const ChatAssistant: React.FC = () => {
   // Connection health check
   const checkConnection = React.useCallback(async () => {
     try {
-      const baseUrl = process.env.REACT_APP_AGENT_URL || 'http://localhost:5050/api/agui/chat';
-      const healthUrl = baseUrl.replace('/chat', '/chat/health');
+      const baseUrl = process.env.AGENT_URL || 'http://localhost:5050';
+      const healthUrl = `${baseUrl}/api/agui/chat/health`;
       
       const response = await fetch(healthUrl, {
         method: 'GET',
@@ -243,6 +262,121 @@ const ChatAssistant: React.FC = () => {
       return false;
     }
   }, []);
+
+  // Fetch current model information
+  const fetchModel = React.useCallback(async () => {
+    try {
+      const baseUrl = process.env.AGENT_URL || 'http://localhost:5050';
+      const modelUrl = `${baseUrl}/api/model`;
+      
+      const response = await fetch(modelUrl, {
+        method: 'GET',
+        timeout: 5000
+      } as any);
+      
+      if (response.ok) {
+        const modelData = await response.json();
+        
+        // Parse the model_name which might come as a JSON string array
+        let modelName = 'Unknown';
+        if (modelData.model_name) {
+          try {
+            // Try to parse as JSON array first
+            const modelArray = JSON.parse(modelData.model_name);
+            if (Array.isArray(modelArray) && modelArray.length > 0) {
+              modelName = modelArray[0];
+            } else {
+              modelName = modelData.model_name;
+            }
+          } catch (parseError) {
+            // If parsing fails, use as-is
+            modelName = modelData.model_name;
+          }
+        }
+        
+        setCurrentModel(modelName);
+      } else {
+        setCurrentModel(null);
+      }
+    } catch (error) {
+      console.warn('Could not fetch model info:', error);
+      setCurrentModel(null);
+    }
+  }, []);
+
+  // Send initial "Hi." message
+  const sendInitialMessage = React.useCallback(async () => {
+    if (!agentRef.current || isLoading || initialMessageSentRef.current) return;
+    
+    // Mark as sent to prevent duplicates
+    initialMessageSentRef.current = true;
+
+    const initialMessage = "Hi.";
+    
+    // Don't show the initial "Hi." message in the chat interface
+    setIsLoading(true);
+    setIsThinking(true);
+
+    try {
+      // Check connection status first
+      if (connectionStatus !== 'connected') {
+        console.log('Not connected, skipping initial message. Status:', connectionStatus);
+        initialMessageSentRef.current = false; // Reset flag since we're not sending
+        return;
+      }
+
+      console.log('Sending initial message to backend...');
+
+      // Add the user message to the agent's message history
+      if (agentRef.current) {
+        agentRef.current.addMessage({
+          id: 'initial-user-' + Date.now(),
+          role: 'user',
+          content: initialMessage
+        });
+
+        // Run the agent with the initial message
+        await agentRef.current.runAgent({
+          runId: 'initial-run-' + Date.now(),
+          tools: [
+            {
+              name: 'graph_timeseries_data',
+              description: 'Display time series data as an interactive graph. Use this when you have prometheus data or any time series data that should be visualized.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  title: {
+                    type: 'string',
+                    description: 'Title for the graph'
+                  },
+                  data: {
+                    type: 'object',
+                    description: 'Prometheus-style data with result array containing metric and values'
+                  },
+                  query: {
+                    type: 'string',
+                    description: 'The original query used to generate this data'
+                  },
+                  metadata: {
+                    type: 'object',
+                    description: 'Additional metadata like time range, step, etc.'
+                  }
+                },
+                required: ['title', 'data']
+              }
+            }
+          ],
+          context: []
+        });
+      }
+    } catch (error: any) {
+      console.error('Error sending initial message:', error);
+      setIsLoading(false);
+      setIsThinking(false);
+      // Reset flag on error so it can be retried
+      initialMessageSentRef.current = false;
+    }
+  }, [connectionStatus, isLoading]);
 
   // Reconnection logic
   const scheduleReconnect = React.useCallback(() => {
@@ -321,6 +455,16 @@ const ChatAssistant: React.FC = () => {
     };
   }, [initializeAgent]);
 
+  // Send initial message when connection becomes ready
+  useEffect(() => {
+    if (connectionStatus === 'connected' && !initialMessageSentRef.current) {
+      console.log('Connection established, sending initial message...');
+      setTimeout(() => {
+        sendInitialMessage();
+      }, 500);
+    }
+  }, [connectionStatus, sendInitialMessage]);
+
   // Auto-scroll functionality
   useEffect(() => {
     if (autoScroll && messagesEndRef.current) {
@@ -340,9 +484,8 @@ const ChatAssistant: React.FC = () => {
       
       const newWidth = window.innerWidth - e.clientX;
       const minWidth = 250;
-      const maxWidth = 600;
       
-      if (newWidth >= minWidth && newWidth <= maxWidth) {
+      if (newWidth >= minWidth) {
         setWidth(newWidth);
       }
     };
@@ -561,16 +704,26 @@ const ChatAssistant: React.FC = () => {
         onMouseDown={handleMouseDown}
       />
       <div className="chat-header">
-        <h3>AI Assistant</h3>
-        <div className="connection-status">
-          <div className={`connection-indicator ${connectionStatus}`}></div>
-          <span>
-            {connectionStatus === 'connected' && 'Connected'}
-            {connectionStatus === 'connecting' && 'Connecting...'}
-            {connectionStatus === 'disconnected' && 'Disconnected'}
-            {connectionStatus === 'error' && 'Connection Error'}
-          </span>
+        <div className="chat-header-main">
+          <div className="chat-header-title">
+            <img src="/holmesgpt-logo.png" alt="HolmesGPT" className="chat-header-logo" />
+            <h3>HolmesGPT Chat</h3>
+          </div>
+          <div className="connection-status">
+            <div className={`connection-indicator ${connectionStatus}`}></div>
+            <span className="connection-text">
+              {connectionStatus === 'connected' && 'Connected'}
+              {connectionStatus === 'connecting' && 'Connecting...'}
+              {connectionStatus === 'disconnected' && 'Disconnected'}
+              {connectionStatus === 'error' && 'Connection Error'}
+            </span>
+          </div>
         </div>
+        {connectionStatus === 'connected' && currentModel && (
+          <div className="model-info">
+            Model: {currentModel}
+          </div>
+        )}
       </div>
       
       <div className="chat-messages">
@@ -613,7 +766,7 @@ const ChatAssistant: React.FC = () => {
                 <span></span>
                 <span></span>
               </div>
-              <div className="thinking-text">AI is thinking...</div>
+              <div className="thinking-text">Holmes is thinking...</div>
             </div>
           </div>
         )}

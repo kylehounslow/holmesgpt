@@ -1,13 +1,35 @@
 .chat-header {
-  padding: 1rem;
-  background-color: #007bff;
+  padding: 0.75rem 1rem;
+  background-color: #009485;
   color: white;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.chat-header-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chat-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
 }
 
 .chat-header h3 {
   margin: 0;
   font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.chat-header-logo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
 }
 
 .chat-controls {
@@ -51,14 +73,16 @@
 
 .user-message {
   align-self: flex-end;
-  background-color: #007bff;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.8) 0%, rgba(37, 99, 235, 0.8) 100%);
   color: white;
+  border: 1px solid rgba(59, 130, 246, 0.6);
 }
 
 .assistant-message {
   align-self: flex-start;
-  background-color: #e9ecef;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0.8) 0%, rgba(60, 216, 181, 0.3) 100%);
   color: #333;
+  border: 1px solid rgba(60, 216, 181, 0.3);
 }
 
 .message-text {
@@ -110,6 +134,11 @@
   background-color: rgba(255, 255, 255, 0.2);
 }
 
+.assistant-message .message-text code {
+  background-color: rgba(0, 0, 0, 0.1);
+  color: #333;
+}
+
 .message-text pre {
   background-color: rgba(0, 0, 0, 0.05);
   padding: 0.75rem;
@@ -120,6 +149,10 @@
 
 .user-message .message-text pre {
   background-color: rgba(255, 255, 255, 0.1);
+}
+
+.assistant-message .message-text pre {
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
 .message-text pre code {
@@ -136,6 +169,10 @@
 
 .user-message .message-text blockquote {
   border-left-color: rgba(255, 255, 255, 0.4);
+}
+
+.assistant-message .message-text blockquote {
+  border-left-color: rgba(124, 58, 237, 0.6);
 }
 
 .message-text strong {
@@ -222,23 +259,48 @@
   align-items: center;
   gap: 0.5rem;
   font-size: 0.8rem;
-  color: #666;
+}
+
+.connection-text {
+  color: white;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.model-info {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 400;
+  text-align: center;
+  padding: 0.25rem 0.5rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .connection-indicator {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background-color: #28a745;
+  background-color: #00ff88;
+  margin-top: 0.1rem;
+  box-shadow: 0 0 4px rgba(0, 255, 136, 0.4);
 }
 
 .connection-indicator.disconnected {
-  background-color: #dc3545;
+  background-color: #ff4757;
+  box-shadow: 0 0 4px rgba(255, 71, 87, 0.4);
 }
 
 .connection-indicator.connecting {
-  background-color: #ffc107;
+  background-color: #ffa502;
+  box-shadow: 0 0 4px rgba(255, 165, 2, 0.4);
   animation: pulse 1s infinite;
+}
+
+.connection-indicator.error {
+  background-color: #ff3838;
+  box-shadow: 0 0 4px rgba(255, 56, 56, 0.4);
 }
 
 @keyframes pulse {
