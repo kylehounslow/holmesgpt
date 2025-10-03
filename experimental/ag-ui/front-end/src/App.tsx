@@ -79,7 +79,7 @@ const App: React.FC = () => {
     <div className="app">
       <div className="left-sidebar">
         <div className="sidebar-header">
-          <h2>HolmesGPT</h2>
+          <h2>ExampleOps</h2>
         </div>
         <nav className="sidebar-nav">
           <button

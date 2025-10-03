@@ -72,19 +72,49 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ data }) => {
   };
 
   // Generate series label from metric
-  const generateSeriesLabel = (metric: Record<string, string>) => {
-    // Remove common labels like __name__ and job for cleaner display
-    const filteredMetric = Object.entries(metric).filter(
-      ([key]) => !['__name__', 'job'].includes(key)
-    );
+  const generateSeriesLabel = (metric: Record<string, string>, index: number) => {
+    console.log('Metric data for series', index, ':', metric);
     
-    if (filteredMetric.length === 0) {
-      return metric.__name__ || 'Series';
+    // First try to use __name__ if it exists
+    if (metric.__name__) {
+      // If there are other meaningful labels, combine them
+      const filteredMetric = Object.entries(metric).filter(
+        ([key]) => key !== '__name__'
+      );
+      
+      if (filteredMetric.length > 0) {
+        const labels = filteredMetric
+          .map(([key, value]) => `${key}="${value}"`)
+          .join(', ');
+        return `${metric.__name__}{${labels}}`;
+      }
+      
+      // Just return the metric name
+      return metric.__name__;
     }
     
-    return filteredMetric
-      .map(([key, value]) => `${key}="${value}"`)
-      .join(', ');
+    // If no __name__, use all available labels (including job)
+    const allLabels = Object.entries(metric);
+    
+    if (allLabels.length > 0) {
+      // For single label, just show the value part if it's descriptive
+      if (allLabels.length === 1) {
+        const [key, value] = allLabels[0];
+        // If it's a job label with a descriptive path, extract the service name
+        if (key === 'job' && value.includes('/')) {
+          return value.split('/').pop() || value;
+        }
+        return value;
+      }
+      
+      // For multiple labels, show key=value format
+      return allLabels
+        .map(([key, value]) => `${key}="${value}"`)
+        .join(', ');
+    }
+    
+    // Last resort: use series index
+    return `Series ${index + 1}`;
   };
 
   // Prepare Chart.js data
@@ -95,7 +125,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ data }) => {
 
     const datasets = graphData.result.map((series, index) => {
       const color = generateColor(index);
-      const label = generateSeriesLabel(series.metric);
+      const label = generateSeriesLabel(series.metric, index);
       
       const dataPoints = series.values?.map(([timestamp, value]) => ({
         x: timestamp * 1000, // Convert to milliseconds
@@ -128,14 +158,7 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ data }) => {
     },
     plugins: {
       legend: {
-        position: 'bottom',
-        labels: {
-          usePointStyle: true,
-          padding: 15,
-          font: {
-            size: 12,
-          },
-        },
+        display: false, // Disable default legend, we'll create a custom one
       },
       tooltip: {
         mode: 'index',
@@ -145,6 +168,10 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ data }) => {
         bodyColor: '#fff',
         borderColor: '#666',
         borderWidth: 1,
+        itemSort: (a: TooltipItem<'line'>, b: TooltipItem<'line'>) => {
+          // Sort by value descending (highest to lowest)
+          return b.parsed.y - a.parsed.y;
+        },
         callbacks: {
           title: (context: TooltipItem<'line'>[]) => {
             const date = new Date(context[0].parsed.x);
@@ -210,6 +237,21 @@ const GraphVisualization: React.FC<GraphVisualizationProps> = ({ data }) => {
         
         <div className="chart-container">
           <Line data={chartData} options={chartOptions} />
+        </div>
+        
+        {/* Custom scrollable legend */}
+        <div className="custom-legend">
+          <div className="legend-items">
+            {chartData.datasets.map((dataset, index) => (
+              <div key={index} className="legend-item">
+                <div 
+                  className="legend-color" 
+                  style={{ backgroundColor: dataset.borderColor as string }}
+                ></div>
+                <span className="legend-label">{dataset.label}</span>
+              </div>
+            ))}
+          </div>
         </div>
         
         {metadata && (

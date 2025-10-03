@@ -1,6 +1,12 @@
+* {
+  box-sizing: border-box;
+}
+
 html, body {
   overflow-x: hidden;
   max-width: 100vw;
+  margin: 0;
+  padding: 0;
 }
 
 .app {
@@ -9,11 +15,12 @@ html, body {
   width: 100vw;
   max-width: 100vw;
   overflow-x: hidden;
+  position: relative;
 }
 
 .left-sidebar {
   width: 200px;
-  background-color: #2c3e50;
+  background-color: #374151;
   color: white;
   display: flex;
   flex-direction: column;
@@ -58,7 +65,7 @@ html, body {
 }
 
 .nav-item.active {
-  background-color: #009485;
+  background-color: #6B7280;
   color: white;
   font-weight: 600;
 }
@@ -127,13 +134,16 @@ servability Platform Styles */
 .observability-platform {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  width: 100%;
+  height: 100vh;
+  flex: 1;
   background-color: #f8f9fa;
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-width: 0; /* Allow flex item to shrink below content size */
 }
 
 .platform-header {
-  background: linear-gradient(135deg, #009485 0%, #007a6b 100%);
+  background: linear-gradient(135deg, #6B7280 0%, #4B5563 100%);
   color: white;
   padding: 2rem;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -245,6 +255,8 @@ servability Platform Styles */
   border-bottom: 1px solid #e9ecef;
   padding: 1.5rem 2rem;
   width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .query-input-container {
@@ -279,8 +291,8 @@ servability Platform Styles */
 
 .query-input:focus {
   outline: none;
-  border-color: #009485;
-  box-shadow: 0 0 0 3px rgba(0, 148, 133, 0.1);
+  border-color: #6B7280;
+  box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.1);
 }
 
 .query-actions {
@@ -290,7 +302,7 @@ servability Platform Styles */
 }
 
 .execute-button {
-  background: linear-gradient(135deg, #009485 0%, #007a6b 100%);
+  background: linear-gradient(135deg, #6B7280 0%, #4B5563 100%);
   color: white;
   border: none;
   padding: 0.75rem 1.5rem;
@@ -337,7 +349,9 @@ servability Platform Styles */
   flex: 1;
   padding: 2rem;
   overflow-y: auto;
+  overflow-x: hidden;
   width: 100%;
+  max-width: 100%;
 }
 
 .empty-state {
@@ -377,6 +391,8 @@ servability Platform Styles */
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   overflow: hidden;
+  width: 100%;
+  max-width: 100%;
 }
 
 .result-header {
@@ -440,6 +456,9 @@ servability Platform Styles */
 
 .result-content {
   padding: 1.5rem;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .error-message {
@@ -470,7 +489,7 @@ servability Platform Styles */
   width: 20px;
   height: 20px;
   border: 2px solid #e9ecef;
-  border-top: 2px solid #009485;
+  border-top: 2px solid #6B7280;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -556,4 +575,147 @@ servability Platform Styles */
   white-space: pre-wrap;
   word-break: break-word;
   min-height: 100%;
+}/
+* Maximize button and result actions */
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.maximize-button {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #495057;
+  transition: all 0.2s ease;
+}
+
+.maximize-button:hover {
+  background: #e9ecef;
+  border-color: #adb5bd;
+  color: #212529;
+}
+
+.maximize-button:active {
+  transform: translateY(1px);
+}
+
+/* Graph modal overlay */
+.graph-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.graph-modal {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: 95vw;
+  height: 90vh;
+  max-width: 1400px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.graph-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #dee2e6;
+  background: #f8f9fa;
+}
+
+.graph-modal-title h3 {
+  margin: 0 0 8px 0;
+  color: #212529;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.graph-modal-query {
+  color: #6c757d;
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+
+.graph-modal-query code {
+  background: #e9ecef;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.85rem;
+  color: #495057;
+}
+
+.close-modal-button {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  line-height: 1;
+}
+
+.close-modal-button:hover {
+  background: #e9ecef;
+  color: #495057;
+}
+
+.graph-modal-content {
+  flex: 1;
+  padding: 20px 24px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.graph-modal-content .graph-visualization {
+  flex: 1;
+  min-height: 500px;
+}
+
+/* Responsive adjustments for modal */
+@media (max-width: 768px) {
+  .graph-modal {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    padding: 0;
+  }
+  
+  .graph-modal-overlay {
+    padding: 0;
+  }
+  
+  .graph-modal-header {
+    padding: 16px 20px 12px;
+  }
+  
+  .graph-modal-content {
+    padding: 16px 20px;
+  }
+}
+
+/* Keyboard navigation support */
+.graph-modal-overlay:focus-within .close-modal-button {
+  outline: 2px solid #0d6efd;
+  outline-offset: 2px;
 }

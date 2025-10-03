@@ -4,6 +4,8 @@
   border-radius: 0.5rem;
   background: #fff;
   overflow: hidden;
+  width: 100%;
+  max-width: 100%;
 }
 
 .graph-container {
@@ -39,6 +41,8 @@
   height: 300px;
   margin-bottom: 1rem;
   position: relative;
+  width: 100%;
+  overflow: hidden;
 }
 
 .no-data {
@@ -64,4 +68,100 @@
 .chart-container canvas {
   background: #fafafa;
   border-radius: 0.25rem;
+}/* Custo
+m scrollable legend */
+.custom-legend {
+  margin-top: 1rem;
+  border-top: 1px solid #e9ecef;
+  padding-top: 0.75rem;
+}
+
+.legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-height: 120px;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 4px;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  background: #fafafa;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.legend-item:hover {
+  background: #f8f9fa;
+  border-color: #adb5bd;
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legend-label {
+  color: #495057;
+  font-weight: 500;
+}
+
+/* Scrollbar styling for legend */
+.legend-items::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.legend-items::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.legend-items::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.legend-items::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* For Firefox */
+.legend-items {
+  scrollbar-width: thin;
+  scrollbar-color: #c1c1c1 #f1f1f1;
+}
+
+/* Responsive legend */
+@media (max-width: 768px) {
+  .legend-items {
+    max-height: 100px;
+  }
+  
+  .legend-item {
+    font-size: 11px;
+    padding: 3px 6px;
+  }
+  
+  .legend-color {
+    width: 10px;
+    height: 10px;
+  }
 }

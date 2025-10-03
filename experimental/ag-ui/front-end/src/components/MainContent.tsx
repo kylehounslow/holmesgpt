@@ -36,6 +36,7 @@ const MainContent: React.FC<MainContentProps> = ({
   const [isExecuting, setIsExecuting] = useState(false);
   const [prometheusStatus, setPrometheusStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [prometheusUrl] = useState(process.env.PROMETHEUS_URL || 'http://localhost:9090');
+  const [isMaximized, setIsMaximized] = useState(false);
 
   // Update context for ChatAssistant
   const updateContext = React.useCallback(() => {
@@ -294,11 +295,31 @@ const MainContent: React.FC<MainContentProps> = ({
     }
   }, [triggerQuery, onQueryTriggered]);
 
+  // Handle keyboard shortcuts for modal
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMaximized) {
+        setIsMaximized(false);
+      }
+    };
+
+    if (isMaximized) {
+      document.addEventListener('keydown', handleKeyDown);
+      // Prevent body scroll when modal is open
+      document.body.style.overflow = 'hidden';
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'unset';
+    };
+  }, [isMaximized]);
+
   return (
     <div className="observability-platform">
       <div className="platform-header">
         <div className="header-content">
-          <h1>HolmesGPT {selectedPage.charAt(0).toUpperCase() + selectedPage.slice(1)}</h1>
+          <h1>ExampleOps Platform - {selectedPage.charAt(0).toUpperCase() + selectedPage.slice(1)}</h1>
           <p>
             {selectedPage === 'metrics' && 'Query and visualize your application metrics and performance data'}
             {selectedPage === 'logs' && 'Search and analyze your application logs and events'}
@@ -399,13 +420,24 @@ const MainContent: React.FC<MainContentProps> = ({
                   {currentResult.timestamp.toLocaleTimeString()}
                 </span>
               </div>
-              <div className="result-status">
-                {currentResult.error ? (
-                  <span className="status-error">Error</span>
-                ) : currentResult.data ? (
-                  <span className="status-success">Success</span>
-                ) : (
-                  <span className="status-loading">Loading...</span>
+              <div className="result-actions">
+                <div className="result-status">
+                  {currentResult.error ? (
+                    <span className="status-error">Error</span>
+                  ) : currentResult.data ? (
+                    <span className="status-success">Success</span>
+                  ) : (
+                    <span className="status-loading">Loading...</span>
+                  )}
+                </div>
+                {currentResult.data && !currentResult.error && (
+                  <button
+                    className="maximize-button"
+                    onClick={() => setIsMaximized(true)}
+                    title="Maximize visualization"
+                  >
+                    ⛶
+                  </button>
                 )}
               </div>
             </div>
@@ -440,6 +472,36 @@ const MainContent: React.FC<MainContentProps> = ({
           </div>
         )}
       </div>
+
+      {/* Maximized Graph Modal */}
+      {isMaximized && currentResult?.data && (
+        <div className="graph-modal-overlay" onClick={() => setIsMaximized(false)}>
+          <div className="graph-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="graph-modal-header">
+              <div className="graph-modal-title">
+                <h3>
+                  {selectedPage === 'metrics' ? '📊 Metrics Visualization' : 
+                   selectedPage === 'logs' ? '📝 Logs Visualization' : 
+                   '🔍 Traces Visualization'}
+                </h3>
+                <div className="graph-modal-query">
+                  Query: <code>{currentResult.query}</code>
+                </div>
+              </div>
+              <button
+                className="close-modal-button"
+                onClick={() => setIsMaximized(false)}
+                title="Close maximized view"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="graph-modal-content">
+              <GraphVisualization data={currentResult.data} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
