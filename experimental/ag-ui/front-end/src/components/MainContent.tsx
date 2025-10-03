@@ -8,19 +8,93 @@ interface QueryResult {
   timestamp: Date;
   data?: any;
   error?: string;
+  errorDetails?: any;
+}
+
+interface ContextItem {
+  description: string;
+  value: string;
 }
 
 interface MainContentProps {
   selectedPage: ObservabilityPage;
   initialQuery?: string;
+  triggerQuery?: string | null;
+  onContextChange?: (context: ContextItem[]) => void;
+  onQueryTriggered?: () => void;
 }
 
-const MainContent: React.FC<MainContentProps> = ({ selectedPage, initialQuery = '' }) => {
+const MainContent: React.FC<MainContentProps> = ({ 
+  selectedPage, 
+  initialQuery = '', 
+  triggerQuery,
+  onContextChange,
+  onQueryTriggered 
+}) => {
   const [query, setQuery] = useState(initialQuery);
-  const [queryResults, setQueryResults] = useState<QueryResult[]>([]);
+  const [currentResult, setCurrentResult] = useState<QueryResult | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [prometheusStatus, setPrometheusStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [prometheusUrl] = useState(process.env.PROMETHEUS_URL || 'http://localhost:9090');
+
+  // Update context for ChatAssistant
+  const updateContext = React.useCallback(() => {
+    if (!onContextChange) return;
+
+    const context: ContextItem[] = [];
+    
+    // Add current page info
+    context.push({
+      description: "Current page",
+      value: selectedPage
+    });
+
+    // Add current query if exists
+    if (query.trim()) {
+      context.push({
+        description: `Current ${selectedPage} query`,
+        value: query.trim()
+      });
+    }
+
+    // Add current result info if exists
+    if (currentResult) {
+      if (currentResult.error) {
+        context.push({
+          description: `${selectedPage} query error`,
+          value: currentResult.error
+        });
+        
+        // Add detailed error response if available
+        if (currentResult.errorDetails) {
+          context.push({
+            description: `${selectedPage} error response`,
+            value: JSON.stringify(currentResult.errorDetails)
+          });
+        }
+      } else if (currentResult.data) {
+        context.push({
+          description: `${selectedPage} query status`,
+          value: "Success - data available for visualization"
+        });
+      }
+    }
+
+    // Add Prometheus connection status for metrics page
+    if (selectedPage === 'metrics') {
+      context.push({
+        description: "Prometheus connection status",
+        value: `${prometheusStatus} (${prometheusUrl})`
+      });
+    }
+
+    onContextChange(context);
+  }, [selectedPage, query, currentResult, prometheusStatus, prometheusUrl, onContextChange]);
+
+  // Update context whenever relevant state changes
+  React.useEffect(() => {
+    updateContext();
+  }, [updateContext]);
 
   // Check Prometheus connection status
   const checkPrometheusConnection = React.useCallback(async () => {
@@ -103,14 +177,22 @@ const MainContent: React.FC<MainContentProps> = ({ selectedPage, initialQuery = 
         },
       });
 
-      if (!response.ok) {
-        throw new Error(`Prometheus query failed: ${response.status} ${response.statusText}`);
-      }
-
       const result = await response.json();
+
+      if (!response.ok) {
+        // Create detailed error with response data
+        const error = new Error(`Prometheus query failed: ${response.status} ${response.statusText}`);
+        (error as any).responseData = result;
+        (error as any).statusCode = response.status;
+        throw error;
+      }
       
       if (result.status !== 'success') {
-        throw new Error(`Prometheus query error: ${result.error || 'Unknown error'}`);
+        // Create detailed error with Prometheus error response
+        const error = new Error(`Prometheus query error: ${result.error || 'Unknown error'}`);
+        (error as any).responseData = result;
+        (error as any).errorType = result.errorType;
+        throw error;
       }
 
       return {
@@ -139,7 +221,7 @@ const MainContent: React.FC<MainContentProps> = ({ selectedPage, initialQuery = 
     };
 
     setIsExecuting(true);
-    setQueryResults(prev => [newResult, ...prev]);
+    setCurrentResult(newResult);
 
     try {
       let responseData: any;
@@ -171,26 +253,18 @@ const MainContent: React.FC<MainContentProps> = ({ selectedPage, initialQuery = 
         };
       }
 
-      setQueryResults(prev => 
-        prev.map(result => 
-          result.id === newResult.id 
-            ? { ...result, data: responseData }
-            : result
-        )
-      );
+      setCurrentResult(prev => prev ? { ...prev, data: responseData } : null);
     } catch (error: any) {
       console.error('Query execution error:', error);
       const errorMessage = selectedPage === 'metrics' 
         ? `Prometheus query failed: ${error.message || 'Unknown error'}`
         : `${selectedPage} query failed: ${error.message || 'Unknown error'}`;
         
-      setQueryResults(prev => 
-        prev.map(result => 
-          result.id === newResult.id 
-            ? { ...result, error: errorMessage }
-            : result
-        )
-      );
+      setCurrentResult(prev => prev ? { 
+        ...prev, 
+        error: errorMessage,
+        errorDetails: error.responseData || null
+      } : null);
     } finally {
       setIsExecuting(false);
     }
@@ -203,8 +277,22 @@ const MainContent: React.FC<MainContentProps> = ({ selectedPage, initialQuery = 
   };
 
   const clearResults = () => {
-    setQueryResults([]);
+    setCurrentResult(null);
   };
+
+  // Handle trigger query execution from ChatAssistant
+  React.useEffect(() => {
+    if (triggerQuery && triggerQuery.trim()) {
+      setQuery(triggerQuery);
+      // Execute the query automatically after a short delay to ensure state is updated
+      setTimeout(() => {
+        handleExecuteQuery();
+        if (onQueryTriggered) {
+          onQueryTriggered();
+        }
+      }, 100);
+    }
+  }, [triggerQuery, onQueryTriggered]);
 
   return (
     <div className="observability-platform">
@@ -275,7 +363,7 @@ const MainContent: React.FC<MainContentProps> = ({ selectedPage, initialQuery = 
               >
                 {isExecuting ? 'Executing...' : 'Execute'}
               </button>
-              {queryResults.length > 0 && (
+              {currentResult && (
                 <button
                   className="clear-button"
                   onClick={clearResults}
@@ -292,57 +380,63 @@ const MainContent: React.FC<MainContentProps> = ({ selectedPage, initialQuery = 
       </div>
 
       <div className="results-section">
-        {queryResults.length === 0 ? (
+        {!currentResult ? (
           <div className="empty-state">
             <div className="empty-icon">📊</div>
             <h3>No queries executed yet</h3>
             <p>Enter a query above and click Execute to see visualizations</p>
           </div>
         ) : (
-          <div className="results-list">
-            {queryResults.map((result) => (
-              <div key={result.id} className="result-item">
-                <div className="result-header">
-                  <div className="result-info">
-                    <h4 className="result-title">
-                      {selectedPage === 'metrics' ? '📊 Metrics Result' : 
-                       selectedPage === 'logs' ? '📝 Logs Result' : 
-                       '🔍 Traces Result'}
-                    </h4>
-                    <span className="result-timestamp">
-                      {result.timestamp.toLocaleTimeString()}
-                    </span>
-                  </div>
-                  <div className="result-status">
-                    {result.error ? (
-                      <span className="status-error">Error</span>
-                    ) : result.data ? (
-                      <span className="status-success">Success</span>
-                    ) : (
-                      <span className="status-loading">Loading...</span>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="result-content">
-                  {result.error ? (
-                    <div className="error-message">
-                      <span className="error-icon">⚠️</span>
-                      {result.error}
-                    </div>
-                  ) : result.data ? (
-                    <div className="graph-container">
-                      <GraphVisualization data={result.data} />
-                    </div>
-                  ) : (
-                    <div className="loading-placeholder">
-                      <div className="loading-spinner"></div>
-                      <span>Executing query...</span>
+          <div className="result-item">
+            <div className="result-header">
+              <div className="result-info">
+                <h4 className="result-title">
+                  {selectedPage === 'metrics' ? '📊 Metrics Result' : 
+                   selectedPage === 'logs' ? '📝 Logs Result' : 
+                   '🔍 Traces Result'}
+                </h4>
+                <span className="result-timestamp">
+                  {currentResult.timestamp.toLocaleTimeString()}
+                </span>
+              </div>
+              <div className="result-status">
+                {currentResult.error ? (
+                  <span className="status-error">Error</span>
+                ) : currentResult.data ? (
+                  <span className="status-success">Success</span>
+                ) : (
+                  <span className="status-loading">Loading...</span>
+                )}
+              </div>
+            </div>
+            
+            <div className="result-content">
+              {currentResult.error ? (
+                <div className="error-message">
+                  <span className="error-icon">⚠️</span>
+                  <div className="error-text">{currentResult.error}</div>
+                  {currentResult.errorDetails && (
+                    <div className="error-details">
+                      <div className="error-details-label">Response Details:</div>
+                      <div className="error-response-container">
+                        <pre className="error-response">
+                          {JSON.stringify(currentResult.errorDetails, null, 2)}
+                        </pre>
+                      </div>
                     </div>
                   )}
                 </div>
-              </div>
-            ))}
+              ) : currentResult.data ? (
+                <div className="graph-container">
+                  <GraphVisualization data={currentResult.data} />
+                </div>
+              ) : (
+                <div className="loading-placeholder">
+                  <div className="loading-spinner"></div>
+                  <span>Executing query...</span>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

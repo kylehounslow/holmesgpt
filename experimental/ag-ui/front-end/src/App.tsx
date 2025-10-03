@@ -6,9 +6,38 @@ import ErrorBoundary from './components/ErrorBoundary';
 
 export type ObservabilityPage = 'metrics' | 'logs' | 'traces';
 
+interface ContextItem {
+  description: string;
+  value: string;
+}
+
 const App: React.FC = () => {
   const [selectedPage, setSelectedPage] = useState<ObservabilityPage>('metrics');
   const [initialQuery, setInitialQuery] = useState<string>('');
+  const [pageContext, setPageContext] = useState<ContextItem[]>([]);
+  const [triggerQuery, setTriggerQuery] = useState<string | null>(null);
+
+  // Handle PromQL query execution from ChatAssistant
+  const handleExecutePromQLQuery = (query: string) => {
+    // Navigate to metrics page
+    setSelectedPage('metrics');
+    
+    // Update URL to reflect the change
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.set('app', 'metrics');
+    urlParams.set('query', encodeURIComponent(query));
+    const newUrl = `${window.location.pathname}?${urlParams.toString()}`;
+    window.history.replaceState({}, '', newUrl);
+    
+    // Set the query to be executed
+    setInitialQuery(query);
+    setTriggerQuery(query);
+  };
+
+  // Clear trigger after it's been processed
+  const clearTriggerQuery = () => {
+    setTriggerQuery(null);
+  };
 
   // Read URL parameters on mount
   useEffect(() => {
@@ -76,9 +105,18 @@ const App: React.FC = () => {
           </button>
         </nav>
       </div>
-      <MainContent selectedPage={selectedPage} initialQuery={initialQuery} />
+      <MainContent 
+        selectedPage={selectedPage} 
+        initialQuery={initialQuery} 
+        triggerQuery={triggerQuery}
+        onContextChange={setPageContext}
+        onQueryTriggered={clearTriggerQuery}
+      />
       <ErrorBoundary>
-        <ChatAssistant />
+        <ChatAssistant 
+          pageContext={pageContext} 
+          onExecutePromQLQuery={handleExecutePromQLQuery}
+        />
       </ErrorBoundary>
     </div>
   );

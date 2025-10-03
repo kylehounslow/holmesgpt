@@ -21,7 +21,17 @@ interface ChatMessage {
 
 type ConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
 
-const ChatAssistant: React.FC = () => {
+interface ContextItem {
+  description: string;
+  value: string;
+}
+
+interface ChatAssistantProps {
+  pageContext?: ContextItem[];
+  onExecutePromQLQuery?: (query: string) => void;
+}
+
+const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecutePromQLQuery }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -39,6 +49,7 @@ const ChatAssistant: React.FC = () => {
   const threadIdRef = useRef<string>('thread-' + Date.now());
   const currentMessageRef = useRef<string>('');
   const toolCallsRef = useRef<Map<string, { name: string, args?: any }>>(new Map());
+  const toolArgsRef = useRef<Map<string, string>>(new Map());
   const chatAssistantRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -125,6 +136,9 @@ const ChatAssistant: React.FC = () => {
           name: params.event.toolCallName 
         });
         
+        // Initialize empty args string for this tool call
+        toolArgsRef.current.set(params.event.toolCallId, '');
+        
         if (params.event.toolCallName === 'graph_timeseries_data') {
           const toolMessage: ChatMessage = {
             id: 'tool-' + params.event.toolCallId,
@@ -133,26 +147,53 @@ const ChatAssistant: React.FC = () => {
             timestamp: new Date()
           };
           setMessages(prev => [...prev, toolMessage]);
+        } else if (params.event.toolCallName === 'execute_promql_query') {
+          const toolMessage: ChatMessage = {
+            id: 'tool-' + params.event.toolCallId,
+            text: '🚀 Executing PromQL query...',
+            sender: 'assistant',
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, toolMessage]);
         }
+      },
+
+      onToolCallArgsEvent: (params: { event: { toolCallId: string; delta: string; }; }) => {
+        console.log('Tool call args:', params.event);
+        
+        // Accumulate the arguments delta
+        const currentArgs = toolArgsRef.current.get(params.event.toolCallId) || '';
+        toolArgsRef.current.set(params.event.toolCallId, currentArgs + params.event.delta);
       },
 
       onToolCallEndEvent: (params: { event: { toolCallId: string; }; toolCallArgs: any; }) => {
         console.log('Tool call ended:', params.event, params.toolCallArgs);
         
-        // Retrieve tool call info from our stored metadata
+        // Retrieve tool call info and accumulated arguments
         const toolCallInfo = toolCallsRef.current.get(params.event.toolCallId);
+        const accumulatedArgsString = toolArgsRef.current.get(params.event.toolCallId) || '';
+        
+        console.log('Accumulated args string:', accumulatedArgsString);
         
         if (toolCallInfo?.name === 'graph_timeseries_data') {
           try {
-            // toolCallArgs is already an object, no need to parse
-            const args = params.toolCallArgs || {};
+            // Parse accumulated arguments
+            let args = {};
+            if (accumulatedArgsString) {
+              try {
+                args = JSON.parse(accumulatedArgsString);
+              } catch (parseError) {
+                console.warn('Could not parse accumulated args as JSON:', parseError);
+                args = {};
+              }
+            }
             console.log('Graph tool args:', args);
             
             // Handle the case where data might be a JSON string
-            let processedArgs = { ...args };
-            if (typeof args.data === 'string') {
+            let processedArgs: any = { ...args };
+            if (typeof (args as any).data === 'string') {
               try {
-                processedArgs.data = JSON.parse(args.data);
+                processedArgs.data = JSON.parse((args as any).data);
               } catch (parseError) {
                 console.warn('Could not parse data as JSON, using as-is:', parseError);
               }
@@ -177,10 +218,74 @@ const ChatAssistant: React.FC = () => {
           } catch (error) {
             console.error('Error processing tool arguments:', error);
           }
+        } else if (toolCallInfo?.name === 'execute_promql_query') {
+          try {
+            // Parse accumulated arguments
+            let args: any = {};
+            if (accumulatedArgsString) {
+              try {
+                args = JSON.parse(accumulatedArgsString);
+              } catch (parseError) {
+                console.warn('Could not parse accumulated args as JSON:', parseError);
+                args = {};
+              }
+            }
+            
+            console.log('Execute PromQL query parsed args:', args);
+            
+            if (args.query && onExecutePromQLQuery) {
+              // Execute the PromQL query
+              onExecutePromQLQuery(args.query);
+              
+              // Update the tool message to show success
+              const successMessage: ChatMessage = {
+                id: 'tool-' + params.event.toolCallId,
+                text: `✅ Navigated to Metrics page and executed query: \`${args.query}\``,
+                sender: 'assistant',
+                timestamp: new Date()
+              };
+              
+              setMessages(prev => 
+                prev.map(msg => 
+                  msg.id === 'tool-' + params.event.toolCallId 
+                    ? successMessage 
+                    : msg
+                )
+              );
+            } else {
+              const missingQuery = !args.query;
+              const missingCallback = !onExecutePromQLQuery;
+              const errorDetails = [];
+              
+              if (missingQuery) errorDetails.push('query parameter');
+              if (missingCallback) errorDetails.push('callback function');
+              
+              throw new Error(`Missing: ${errorDetails.join(', ')}. Args: ${JSON.stringify(args)}`);
+            }
+          } catch (error) {
+            console.error('Error executing PromQL query:', error);
+            
+            // Update the tool message to show error
+            const errorMessage: ChatMessage = {
+              id: 'tool-' + params.event.toolCallId,
+              text: `❌ Failed to execute PromQL query: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              sender: 'assistant',
+              timestamp: new Date()
+            };
+            
+            setMessages(prev => 
+              prev.map(msg => 
+                msg.id === 'tool-' + params.event.toolCallId 
+                  ? errorMessage 
+                  : msg
+              )
+            );
+          }
         }
         
-        // Clean up the stored tool call info
+        // Clean up the stored tool call info and accumulated args
         toolCallsRef.current.delete(params.event.toolCallId);
+        toolArgsRef.current.delete(params.event.toolCallId);
       },
 
       onRunErrorEvent: (params: { event: { message: any; }; }) => {
@@ -247,13 +352,13 @@ const ChatAssistant: React.FC = () => {
     }
   }, []);
 
-  // Connection health check
+  // Connection check using model endpoint
   const checkConnection = React.useCallback(async () => {
     try {
       const baseUrl = process.env.AGENT_URL || 'http://localhost:5050';
-      const healthUrl = `${baseUrl}/api/agui/chat/health`;
+      const modelUrl = `${baseUrl}/api/model`;
       
-      const response = await fetch(healthUrl, {
+      const response = await fetch(modelUrl, {
         method: 'GET',
         timeout: 5000
       } as any);
@@ -364,9 +469,23 @@ const ChatAssistant: React.FC = () => {
                 },
                 required: ['title', 'data']
               }
+            },
+            {
+              name: 'execute_promql_query',
+              description: 'Navigate to the Metrics page and execute a PromQL query. Use this when you want to run a specific Prometheus query and show the results.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: {
+                    type: 'string',
+                    description: 'The PromQL query to execute (e.g., "rate(http_requests_total[5m])", "cpu_usage", "memory_usage")'
+                  }
+                },
+                required: ['query']
+              }
             }
           ],
-          context: []
+          context: pageContext
         });
       }
     } catch (error: any) {
@@ -588,9 +707,23 @@ const ChatAssistant: React.FC = () => {
                   },
                   required: ['title', 'data']
                 }
+              },
+              {
+                name: 'execute_promql_query',
+                description: 'Navigate to the Metrics page and execute a PromQL query. Use this when you want to run a specific Prometheus query and show the results.',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    query: {
+                      type: 'string',
+                      description: 'The PromQL query to execute (e.g., "rate(http_requests_total[5m])", "cpu_usage", "memory_usage")'
+                    }
+                  },
+                  required: ['query']
+                }
               }
             ],
-            context: []
+            context: pageContext
           });
 
           // Add timeout to prevent hanging requests

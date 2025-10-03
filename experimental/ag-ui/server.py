@@ -142,8 +142,6 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                     run_id=input_data.run_id
                 )
             )
-            # if not chat_request.ask:
-            #     yield RunFinishedEvent
             hgpt_chat_stream_response: StreamMessage = ai.call_stream(
                 msgs=messages,
                 enable_tool_approval=chat_request.enable_tool_approval or False)
@@ -168,7 +166,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                         # TODO - kylhouns: Render "TodoWrite" tool_name results prettier.
                         #                 Ideally using TOOL_STEP events.
                         logging.info(f"🔧 TOOL_RESULT received - tool_name: {tool_name}")
+                        front_end_tool_invoked = False
                         if _should_graph_timeseries_data(tool_name=tool_name):
+                            front_end_tool_invoked = True
                             logging.info(f"🔧 Should graph timeseries data for tool: {tool_name}")
                             ts_data = _parse_timeseries_data(chunk.data)
                             tool_call_id = chunk.data.get("tool_call_id", chunk.data.get("id", "unknown"))
@@ -178,16 +178,24 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                                     tool_call_name="graph_timeseries_data",
                                     tool_call_args=ts_data):
                                 yield encoder.encode(tool_event)
-                        elif _should_execute_suggested_query(tool_name=tool_name):
+                        if _should_execute_suggested_query(tool_name=tool_name):
+                            front_end_tool_invoked = True
                             tool_call_id = chunk.data.get("tool_call_id", chunk.data.get("id", "unknown"))
-                            async for tool_event in _invoke_front_end_tool(
+                            front_end_query_tool = None
+                            if tool_name == "opensearch_ppl_query_assist":
+                                front_end_query_tool = "execute_ppl_query"
+                            elif tool_name in ("execute_prometheus_range_query", "execute_prometheus_instant_query"):
+                                front_end_query_tool = "execute_promql_query"
+
+                            async for tool_event in  _invoke_front_end_tool(
                                     tool_call_id=tool_call_id,
-                                    tool_call_name="execute_ppl_query",
+                                    tool_call_name=front_end_query_tool,
                                     tool_call_args={
                                         "query": _parse_query(chunk.data)
                                     }):
                                 yield encoder.encode(tool_event)
-                        else:
+
+                        if not front_end_tool_invoked:
                             async for event in _stream_agui_text_message_event(
                                     message=f"🔧 {tool_name} result:\n{chunk.data.get("result", {}).get("data", "")[0:200]}..."):
                                 yield encoder.encode(event)
@@ -229,8 +237,7 @@ def _remove_empty_user_messages(messages: list) -> list:
 
 
 def _should_execute_suggested_query(tool_name: str) -> bool:
-    # Only support ppl query for now.
-    return tool_name in ("opensearch_ppl_query_assist")
+    return tool_name in ("opensearch_ppl_query_assist", "execute_prometheus_range_query", "execute_prometheus_instant_query")
 
 
 def _parse_query(data) -> str:

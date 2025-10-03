@@ -515,3 +515,45 @@ servability Platform Styles */
     gap: 0.5rem;
   }
 }
+
+/* Error details styling */
+.error-message {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.error-text {
+  color: #dc3545;
+  font-weight: 500;
+}
+
+.error-details {
+  margin-top: 8px;
+}
+
+.error-details-label {
+  color: #6c757d;
+  font-size: 0.9em;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.error-response-container {
+  height: 200px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  overflow: auto;
+}
+
+.error-response {
+  padding: 12px;
+  margin: 0;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.85em;
+  color: #495057;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 100%;
+}
