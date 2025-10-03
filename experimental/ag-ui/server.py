@@ -30,7 +30,6 @@ from holmes.core.conversations import (
     build_chat_messages,
 )
 from holmes.core.models import (
-    FollowUpAction,
     ChatRequest,
 )
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
@@ -89,6 +88,7 @@ def sync_before_server_start():
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
 
+
 app = FastAPI()
 
 # Add CORS middleware front-end access
@@ -99,6 +99,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.get("/api/agui/chat/health")
 def agui_chat(request: Request):
@@ -129,35 +130,6 @@ def agui_chat(input_data: RunAgentInput, request: Request):
         global_instructions=global_instructions,
         additional_system_prompt=chat_request.additional_system_prompt,
     )
-
-    # Process tool decisions if provided
-    if chat_request.tool_decisions:
-        logging.info(
-            f"Processing {len(chat_request.tool_decisions)} tool decisions"
-        )
-        messages = ai.process_tool_decisions(messages, chat_request.tool_decisions)
-    follow_up_actions = []
-    if not already_answered(chat_request.conversation_history):
-        follow_up_actions = [
-            FollowUpAction(
-                id="logs",
-                action_label="Logs",
-                prompt="Show me the relevant logs",
-                pre_action_notification_text="Fetching relevant logs...",
-            ),
-            FollowUpAction(
-                id="graphs",
-                action_label="Graphs",
-                prompt="Show me the relevant graphs. Use prometheus and make sure you embed the results with `<< >>` to display a graph",
-                pre_action_notification_text="Drawing some graphs...",
-            ),
-            FollowUpAction(
-                id="articles",
-                action_label="Articles",
-                prompt="List the relevant runbooks and links used. Write a short summary for each",
-                pre_action_notification_text="Looking up and summarizing runbooks and links...",
-            ),
-        ]
 
     # Hijack the HolmesGPT stream output and format as AG-UI
 
