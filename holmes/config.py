@@ -297,7 +297,7 @@ class Config(RobustaBaseConfig):
             model: Optional[str] = None,
             tracer=None,
     ) -> "ToolCallingLLM":
-        tool_executor = self.create_tool_executor(dal)
+        tool_executor = self.create_agui_tool_executor(dal)
         from holmes.core.tool_calling_llm import ToolCallingLLM
 
         return ToolCallingLLM(
