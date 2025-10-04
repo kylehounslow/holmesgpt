@@ -242,6 +242,24 @@ class Config(RobustaBaseConfig):
         )
         return ToolExecutor(cli_toolsets)
 
+    def create_agui_tool_executor(self, dal: Optional["SupabaseDal"]) -> ToolExecutor:
+        """
+        Creates ToolExecutor for the AG-UI server endpoints
+        """
+
+        if self._server_tool_executor:
+            return self._server_tool_executor
+
+        toolsets = self.toolset_manager.list_console_toolsets(dal=dal, refresh_status=True)
+
+        self._server_tool_executor = ToolExecutor(toolsets)
+
+        logging.debug(
+            f"Starting AI session with tools: {[tn for tn in self._server_tool_executor.tools_by_name.keys()]}"
+        )
+
+        return self._server_tool_executor
+
     def create_tool_executor(self, dal: Optional["SupabaseDal"]) -> ToolExecutor:
         """
         Creates ToolExecutor for the server endpoints
@@ -250,7 +268,7 @@ class Config(RobustaBaseConfig):
         if self._server_tool_executor:
             return self._server_tool_executor
 
-        toolsets = self.toolset_manager.list_console_toolsets(dal=dal, refresh_status=True)
+        toolsets = self.toolset_manager.list_server_toolsets(dal=dal)
 
         self._server_tool_executor = ToolExecutor(toolsets)
 
@@ -271,6 +289,19 @@ class Config(RobustaBaseConfig):
 
         return ToolCallingLLM(
             tool_executor, self.max_steps, self._get_llm(tracer=tracer)
+        )
+
+    def create_agui_toolcalling_llm(
+            self,
+            dal: Optional["SupabaseDal"] = None,
+            model: Optional[str] = None,
+            tracer=None,
+    ) -> "ToolCallingLLM":
+        tool_executor = self.create_tool_executor(dal)
+        from holmes.core.tool_calling_llm import ToolCallingLLM
+
+        return ToolCallingLLM(
+            tool_executor, self.max_steps, self._get_llm(model, tracer)
         )
 
     def create_toolcalling_llm(

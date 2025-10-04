@@ -2,13 +2,6 @@
 
 A React TypeScript application with integrated AG-UI chat assistant.
 
-## Features
-
-- **Split Layout**: Main content area on the left, chat assistant on the right
-- **AG-UI Integration**: Uses HttpAgent for real-time communication with AI agents
-- **Event Streaming**: Supports real-time message streaming and tool calls
-- **TypeScript**: Full type safety with AG-UI SDK types
-
 ## Setup
 
 1. Install dependencies:
@@ -33,7 +26,7 @@ The app expects an AG-UI compatible agent service running at the base URL specif
 
 - Accept POST requests with `RunAgentInput` payload
 - Return Server-Sent Events (SSE) stream
-- Follow the Agent User Interaction Protocol
+- Follow the AG-UI Protocol
 
 ## AG-UI Integration
 

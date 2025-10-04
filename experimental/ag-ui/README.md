@@ -13,14 +13,14 @@ AG-UI is an experimental extension to HolmesGPT that demonstrates [AG-UI](https:
    - Suggest to run [opentelemetry-demo](https://github.com/open-telemetry/opentelemetry-demo) via docker-compose. 
 - **Node.js** 20+ (for frontend demonstration)
 
-### **0. Set up datasources**
+### **1. Set up datasources**
 e.g. [opentelemetry-demo](https://github.com/open-telemetry/opentelemetry-demo) 
 ```
 cd opentelemetry-demo
 docker compose up -d
 ```
 
-### **1. Start HolmesGPT AG-UI Server on port 5050**
+### **2. Start HolmesGPT AG-UI Server on port 5050**
 
 ```bash
 # Start HolmesGPT AG-UI compatible server
@@ -29,7 +29,7 @@ export HOLMES_PORT=5050
 poetry run python experimental/ag-ui/server.py
 ```
 
-### **2. Run Demo Frontend**
+### **3. Run Demo Frontend**
 Create .env file at `experimental/ag-ui/front-end/.env`. Example below. Replace Prometheus/OpenSearch urls as needed
 ```
 # AG-UI Agent Configuration
