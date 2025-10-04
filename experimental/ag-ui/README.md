@@ -1,21 +1,25 @@
-# AG-UI - Experimental HolmesGPT Extension
+# AG-UI - Experimental HolmesGPT Server
 
-AG-UI is an experimental extension to HolmesGPT that demonstrates [AG-UI](https://docs.ag-ui.com/introduction) capabilities through a specialized `/api/agui/chat` endpoint and a web-based demo interface. The AG-UI compatible `server.py` is adapted from the [existing server.py implementation](../../server.py)
+AG-UI is an experimental extension to HolmesGPT that demonstrates [AG-UI](https://docs.ag-ui.com/introduction) capabilities through a specialized `/api/agui/chat` endpoint and a web-based "ExampleOps✨" demo interface. The AG-UI compatible `server.py` is adapted from the [existing server.py implementation](../../server.py)
 
 *⚠️ **Disclaimer**: AG-UI is experimental within HolmesGPT. APIs and interfaces may change as the project evolves. The demonstration server and frontend is not intended for production use.*
+
+### Known Limitations:
+1. Front-end tool auto-discovery and integration with LLM is not yet supported. Front-end tool discovery and execution is handled statically in the back-end. 
 
 
 ## 🛠️ Quick Start
 
-### **Prerequisites**
-- **HolmesGPT** instance with AG-UI extensions enabled
+### **0. Prerequisites**
+- **HolmesGPT** with experimental AG-UI server. 
 - **Data Sources**: Prometheus (`:9090`) and/or OpenSearch (`:9200`)
-   - Suggest to run [opentelemetry-demo](https://github.com/open-telemetry/opentelemetry-demo) via docker-compose. 
+   - Recommended to run [opentelemetry-demo](https://github.com/open-telemetry/opentelemetry-demo) via docker-compose. 
 - **Node.js** 20+ (for frontend demonstration)
 
 ### **1. Set up datasources**
-e.g. [opentelemetry-demo](https://github.com/open-telemetry/opentelemetry-demo) 
+A simple way to generate synthetic Prometheus metrics, OpenSearch logs, traces and more, is to use: [opentelemetry-demo](https://github.com/open-telemetry/opentelemetry-demo) 
 ```
+git clone git@github.com:open-telemetry/opentelemetry-demo.git
 cd opentelemetry-demo
 docker compose up -d
 ```
@@ -29,8 +33,9 @@ export HOLMES_PORT=5050
 poetry run python experimental/ag-ui/server.py
 ```
 
-### **3. Run Demo Frontend**
-Create .env file at `experimental/ag-ui/front-end/.env`. Example below. Replace Prometheus/OpenSearch urls as needed
+### **3. Run "ExampleOps✨" Demo Frontend**
+ExampleOps✨ is a lightweight observability frontend that demonstrates AG-UI capabilities (page context, state sharing, front-end tools execution, etc).
+Create .env file at `experimental/ag-ui/front-end/.env`. See example below and replace Prometheus/OpenSearch urls as needed:
 ```
 # AG-UI Agent Configuration
 HOLMES_PORT=5050

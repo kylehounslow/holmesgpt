@@ -250,13 +250,12 @@ class Config(RobustaBaseConfig):
         if self._server_tool_executor:
             return self._server_tool_executor
 
-        toolsets = self.toolset_manager.list_console_toolsets(dal=dal, refresh_status=True)
-
-        self._server_tool_executor = ToolExecutor(toolsets)
-
-        logging.debug(
-            f"Starting AI session with tools: {[tn for tn in self._server_tool_executor.tools_by_name.keys()]}"
+        # Use same toolset as CLI for AG-UI front-end.
+        agui_toolsets = self.toolset_manager.list_console_toolsets(
+            dal=dal, refresh_status=True
         )
+
+        self._server_tool_executor = ToolExecutor(agui_toolsets)
 
         return self._server_tool_executor
 

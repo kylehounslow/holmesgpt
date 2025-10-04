@@ -130,6 +130,7 @@ class OpenSearchQueryToolset(Toolset):
         super().__init__(
             name="opensearch/query",
             description="OpenSearch query to assist with PPL queries.",
+            experimental=True,
             enabled=True,
             tools=[PplQueryAssistTool()],
             tags=[ToolsetTag.CORE],

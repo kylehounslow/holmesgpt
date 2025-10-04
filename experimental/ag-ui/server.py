@@ -77,18 +77,6 @@ init_logging()
 config = Config.load_from_env()
 dal = config.dal
 
-
-def sync_before_server_start():
-    try:
-        update_holmes_status_in_db(dal, config)
-    except Exception:
-        logging.error("Failed to update holmes status", exc_info=True)
-    try:
-        holmes_sync_toolsets_status(dal, config)
-    except Exception:
-        logging.error("Failed to synchronise holmes toolsets", exc_info=True)
-
-
 app = FastAPI()
 
 # Add CORS middleware front-end access
@@ -116,11 +104,12 @@ def agui_chat(input_data: RunAgentInput, request: Request):
     # Ignore front-end tool result messages. Not supported for now. Use chat history/context instead.
     if _is_tool_result_message(input_data):
         return PlainTextResponse("OK", status_code=200)
-    chat_request = _agui_input_to_holmes_chat_request(input_data=input_data)
 
+    chat_request = _agui_input_to_holmes_chat_request(input_data=input_data)
     if not chat_request.ask:
         return PlainTextResponse("Bad request. Chat message cannot be empty", status_code=400)
-    ai = config.create_toolcalling_llm(dal=dal, model=chat_request.model)
+
+    ai = config.create_agui_toolcalling_llm(dal=dal, model=chat_request.model)
     global_instructions = dal.get_global_instructions_for_account()
     messages = build_chat_messages(
         chat_request.ask,
@@ -133,7 +122,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
 
     # Hijack the HolmesGPT stream output and format as AG-UI
 
-    async def event_generator():
+    async def event_generator(message_history):
         try:
             yield encoder.encode(
                 RunStartedEvent(
@@ -143,7 +132,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                 )
             )
             hgpt_chat_stream_response: StreamMessage = ai.call_stream(
-                msgs=messages,
+                msgs=message_history,
                 enable_tool_approval=chat_request.enable_tool_approval or False)
             for chunk in hgpt_chat_stream_response:
                 if hasattr(chunk, 'event'):
@@ -221,7 +210,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                 raise HTTPException(status_code=500, detail=str(e))
 
     return StreamingResponse(
-        event_generator(),
+        event_generator(messages),
         media_type=encoder.get_content_type()
     )
 
@@ -421,6 +410,4 @@ if __name__ == "__main__":
     log_config["formatters"]["default"]["fmt"] = (
         "%(asctime)s %(levelname)-8s %(message)s"
     )
-    sync_before_server_start()
-    # todo - kylhouns: reload=False was only for pycharm debugging
     uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config, reload=False)
