@@ -41,7 +41,7 @@ from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
 from holmes.plugins.toolsets.opensearch.opensearch import OpenSearchToolset
 from holmes.plugins.toolsets.opensearch.opensearch_logs import OpenSearchLogsToolset
-from holmes.plugins.toolsets.opensearch.opensearch_query import OpenSearchQueryToolset
+from holmes.plugins.toolsets.opensearch.opensearch_query_assist import OpenSearchQueryAssistToolset
 from holmes.plugins.toolsets.opensearch.opensearch_traces import OpenSearchTracesToolset
 from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
@@ -93,7 +93,7 @@ def load_python_toolsets(dal: Optional[SupabaseDal]) -> List[Toolset]:
         PrometheusToolset(),
         OpenSearchLogsToolset(),
         OpenSearchTracesToolset(),
-        OpenSearchQueryToolset(),
+        OpenSearchQueryAssistToolset(),
         CoralogixLogsToolset(),
         RabbitMQToolset(),
         GitToolset(),

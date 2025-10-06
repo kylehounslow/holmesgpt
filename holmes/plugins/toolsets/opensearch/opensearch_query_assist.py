@@ -33,23 +33,10 @@ class PplQueryAssistTool(Tool):
                 },
             ),
         ),
-        # "explanation": ToolParameter(
-        #     description="Detailed breakdown of the query to educate the user and explain your reasoning.",
-        #     type="string",
-        #     required=True,
-        #     items=ToolParameter(
-        #         type="object",
-        #         properties={
-        #             "id": ToolParameter(type="string", required=True),
-        #             "content": ToolParameter(type="string", required=True),
-        #             "status": ToolParameter(type="string", required=True),
-        #         },
-        #     ),
-        # ),
     }
 
     def _invoke(
-        self, params: dict, user_approved: bool = False
+            self, params: dict, user_approved: bool = False
     ) -> StructuredToolResult:
         try:
             query = params.get("query", [])
@@ -69,9 +56,11 @@ class PplQueryAssistTool(Tool):
                 error=f"Failed to process tasks: {str(e)}",
                 params=params,
             )
+
     def get_parameterized_one_liner(self, params: Dict) -> str:
         query = params.get("query", [])
         return f"OpenSearchQueryToolset: Query ({query})"
+
 
 class PplQueryValidationTool(Tool):
     name: str = "opensearch_ppl_query_validation"
@@ -123,13 +112,13 @@ class PplQueryValidationTool(Tool):
         return f"OpenSearchQueryToolset: Query ({query})"
 
 
-class OpenSearchQueryToolset(Toolset):
-    """OpenSearch query to assist with PPL queries"""
+class OpenSearchQueryAssistToolset(Toolset):
+    """OpenSearch query assist with PPL queries"""
 
     def __init__(self):
         super().__init__(
-            name="opensearch/query",
-            description="OpenSearch query to assist with PPL queries.",
+            name="opensearch/query_assist",
+            description="OpenSearch query assist with PPL queries.",
             experimental=True,
             enabled=True,
             tools=[PplQueryAssistTool()],
@@ -142,6 +131,6 @@ class OpenSearchQueryToolset(Toolset):
 
     def _reload_instructions(self):
         template_file_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "opensearch_query_instructions.jinja2")
+            os.path.join(os.path.dirname(__file__), "opensearch_query_assist_instructions.jinja2")
         )
         self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
