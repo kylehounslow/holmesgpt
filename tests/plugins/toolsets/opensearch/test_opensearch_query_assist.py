@@ -127,6 +127,22 @@ class TestPplQueryAssistTool:
         assert result.params == params
         assert result.error is None
 
+    def test_invoke_without_user_approval(self):
+        """Test invocation without user approval (default behavior)."""
+        # Arrange
+        test_query = "source=logs-* | stats count() by level"
+        params = {"query": test_query}
+
+        # Act
+        result = self.tool._invoke(params)  # user_approved defaults to False
+
+        # Assert
+        assert isinstance(result, StructuredToolResult)
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data["query"] == test_query
+        assert result.params == params
+        assert result.error is None
+
     def test_get_parameterized_one_liner_with_query(self):
         """Test one-liner generation with query parameter."""
         # Arrange
@@ -162,6 +178,30 @@ class TestPplQueryAssistTool:
 
         # Assert
         expected = "OpenSearchQueryToolset: Query ()"
+        assert result == expected
+
+    def test_get_parameterized_one_liner_with_list_query(self):
+        """Test one-liner generation with list query."""
+        # Arrange
+        params = {"query": ["source=logs-*", "stats count()"]}
+
+        # Act
+        result = self.tool.get_parameterized_one_liner(params)
+
+        # Assert
+        expected = "OpenSearchQueryToolset: Query (['source=logs-*', 'stats count()'])"
+        assert result == expected
+
+    def test_get_parameterized_one_liner_with_none_query(self):
+        """Test one-liner generation with None query."""
+        # Arrange
+        params = {"query": None}
+
+        # Act
+        result = self.tool.get_parameterized_one_liner(params)
+
+        # Assert
+        expected = "OpenSearchQueryToolset: Query (None)"
         assert result == expected
 
 
