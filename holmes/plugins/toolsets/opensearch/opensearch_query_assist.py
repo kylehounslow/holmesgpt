@@ -62,56 +62,6 @@ class PplQueryAssistTool(Tool):
         return f"OpenSearchQueryToolset: Query ({query})"
 
 
-class PplQueryValidationTool(Tool):
-    name: str = "opensearch_ppl_query_validation"
-    description: str = "Validate OpenSearch Piped Processing Language (PPL) queries"
-    parameters: Dict[str, ToolParameter] = {
-        "query": ToolParameter(
-            description=description,
-            type="string",
-            required=True,
-            items=ToolParameter(
-                type="object",
-                properties={
-                    "id": ToolParameter(type="string", required=True),
-                    "content": ToolParameter(type="string", required=True),
-                    "status": ToolParameter(type="string", required=True),
-                },
-            ),
-        ),
-    }
-
-    def _invoke(
-            self, params: dict, user_approved: bool = False
-    ) -> StructuredToolResult:
-        try:
-            """
-            TODO: Add calls to opensearch index `GET <index>/_validate/query`
-            # https://docs.opensearch.org/latest/api-reference/search-apis/validate/
-            """
-            query = params.get("query", [])
-            response_data = {
-                "query": query
-            }
-            return StructuredToolResult(
-                status=StructuredToolResultStatus.SUCCESS,
-                data=response_data,
-                params=params,
-            )
-
-        except Exception as e:
-            logging.exception(f"error using {self.name} tool")
-            return StructuredToolResult(
-                status=StructuredToolResultStatus.ERROR,
-                error=f"Failed to process tasks: {str(e)}",
-                params=params,
-            )
-
-    def get_parameterized_one_liner(self, params: Dict) -> str:
-        query = params.get("query", [])
-        return f"OpenSearchQueryToolset: Query ({query})"
-
-
 class OpenSearchQueryAssistToolset(Toolset):
     """OpenSearch query assist with PPL queries"""
 

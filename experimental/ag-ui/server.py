@@ -120,7 +120,7 @@ def agui_chat(input_data: RunAgentInput, request: Request):
         additional_system_prompt=chat_request.additional_system_prompt,
     )
 
-    # Hijack the HolmesGPT stream output and format as AG-UI
+    # Hijack the existing HolmesGPT cat stream output and format as AG-UI events.
 
     async def event_generator(message_history):
         try:
@@ -137,10 +137,10 @@ def agui_chat(input_data: RunAgentInput, request: Request):
             for chunk in hgpt_chat_stream_response:
                 if hasattr(chunk, 'event'):
                     event_type = chunk.event.value if hasattr(chunk.event, 'value') else str(chunk.event)
-                    logging.info(f"Streaming chunk: {event_type}")
+                    logging.debug(f"Streaming chunk: {event_type}")
                 else:
                     event_type = 'unknown'
-                    logging.info(f"Streaming chunk: {chunk}")
+                    logging.debug(f"Streaming chunk: {chunk}")
                 if hasattr(chunk, 'data'):
                     tool_name = chunk.data.get('tool_name', chunk.data.get('name', 'Tool'))
                     if event_type in (StreamEvents.AI_MESSAGE, StreamEvents.ANSWER_END, "unknown"):
@@ -152,16 +152,16 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                                 message=f"🔧 Using Agent tool: `{tool_name}`..."):
                             yield encoder.encode(event)
                     elif event_type == StreamEvents.TOOL_RESULT:
-                        # TODO - kylhouns: Render "TodoWrite" tool_name results prettier.
+                        # TODO [FUTURE]: Render "TodoWrite" tool_name results prettier.
                         #                 Ideally using TOOL_STEP events.
-                        logging.info(f"🔧 TOOL_RESULT received - tool_name: {tool_name}")
+                        logging.debug(f"🔧 TOOL_RESULT received - tool_name: {tool_name}")
                         front_end_tool_invoked = False
                         if _should_graph_timeseries_data(tool_name=tool_name):
                             front_end_tool_invoked = True
-                            logging.info(f"🔧 Should graph timeseries data for tool: {tool_name}")
+                            logging.debug(f"🔧 Should graph timeseries data for tool: {tool_name}")
                             ts_data = _parse_timeseries_data(chunk.data)
                             tool_call_id = chunk.data.get("tool_call_id", chunk.data.get("id", "unknown"))
-                            # TODO - kylhouns: Automate front-end tools discovery and let LLM decide which to invoke.
+                            # TODO [FUTURE]: Automate front-end tools discovery and let LLM decide which to invoke.
                             async for tool_event in _invoke_front_end_tool(
                                     tool_call_id=tool_call_id,
                                     tool_call_name="graph_timeseries_data",
@@ -183,7 +183,6 @@ def agui_chat(input_data: RunAgentInput, request: Request):
                                         "query": _parse_query(chunk.data)
                                     }):
                                 yield encoder.encode(tool_event)
-
                         if not front_end_tool_invoked:
                             async for event in _stream_agui_text_message_event(
                                     message=f"🔧 {tool_name} result:\n{chunk.data.get("result", {}).get("data", "")[0:200]}..."):
@@ -243,10 +242,9 @@ def _should_graph_timeseries_data(tool_name: str) -> bool:
 
 def _parse_timeseries_data(data) -> dict:
     try:
-        # DEBUG: Log the raw input data
-        logging.info(f"🔍 _parse_timeseries_data received data: {data}")
-        logging.info(f"🔍 Data type: {type(data)}")
-        logging.info(f"🔍 Data keys: {list(data.keys()) if hasattr(data, 'keys') else 'No keys'}")
+        logging.debug(f"🔍 _parse_timeseries_data received data: {data}")
+        logging.debug(f"🔍 Data type: {type(data)}")
+        logging.debug(f"🔍 Data keys: {list(data.keys()) if hasattr(data, 'keys') else 'No keys'}")
 
         # Extract the result from chunk.data
         result_data = data.get("result", {})
@@ -255,15 +253,15 @@ def _parse_timeseries_data(data) -> dict:
         description = params.get("description")
         tool_name = data.get("tool_name", data.get("name", ""))
 
-        logging.info(f"🔍 Extracted - result_data: {result_data}")
-        logging.info(f"🔍 Extracted - query: {query}")
-        logging.info(f"🔍 Extracted - tool_name: {tool_name}")
+        logging.debug(f"🔍 Extracted - result_data: {result_data}")
+        logging.debug(f"🔍 Extracted - query: {query}")
+        logging.debug(f"🔍 Extracted - tool_name: {tool_name}")
 
         # If result is a JSON string, parse it
         if isinstance(result_data, str):
             try:
                 result_data = json.loads(result_data)
-                logging.info(f"🔍 Parsed JSON result_data: {result_data}")
+                logging.debug(f"🔍 Parsed JSON result_data: {result_data}")
             except json.JSONDecodeError:
                 logging.warning(f"Failed to parse result as JSON: {result_data}")
                 result_data = {}
@@ -357,10 +355,10 @@ def _is_tool_result_message(input_data: RunAgentInput) -> bool:
 
 
 def _agui_input_to_holmes_chat_request(input_data: RunAgentInput) -> ChatRequest:
-    # Convert AG-UI input to ChatRequest format
+    # Convert AG-UI input to HolmesGPT ChatRequest format
     non_system_messages = []
-    # IMPORTANT: Do not support front-end "tool" messages for now. Stire them as assistant messages in conv. history.
-    # requires full integration with tools. Claude will complain about "toolResult" missing corresponding "toolUse" msg.
+    # IMPORTANT: Do not support front-end "tool" messages for now. Store them as assistant messages in conv history.
+    # Requires full integration with tools. Claude will complain about "toolResult" missing corresponding "toolUse" msg.
     # E.g. `The number of toolResult blocks at messages.2.content exceeds the number of toolUse blocks of previous turn`
     for msg in input_data.messages:
         if msg.role in ("user", "assistant"):
