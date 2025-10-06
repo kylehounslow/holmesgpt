@@ -1,6 +1,6 @@
 # AG-UI - Experimental HolmesGPT Server
 
-AG-UI is an experimental extension to HolmesGPT that demonstrates [AG-UI](https://docs.ag-ui.com/introduction) capabilities through a specialized `/api/agui/chat` endpoint and a web-based "ExampleOps✨" demo interface. The AG-UI compatible `server.py` is adapted from the [existing server.py implementation](../../server.py)
+AG-UI is an experimental extension to HolmesGPT that demonstrates [AG-UI](https://docs.ag-ui.com/introduction) capabilities (page context and state sharing, front-end tools execution, etc) through a specialized `/api/agui/chat` endpoint and a web-based "ExampleOps✨" observability demo interface. The AG-UI compatible `server.py` is adapted from the [existing server.py implementation](../../server.py)
 
 *⚠️ **Disclaimer**: AG-UI is experimental within HolmesGPT. APIs and interfaces may change as the project evolves. The demonstration server and frontend is not intended for production use.*
 

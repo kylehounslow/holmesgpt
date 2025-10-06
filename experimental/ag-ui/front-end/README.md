@@ -1,6 +1,6 @@
-# AG-UI App
+# ExampleOps✨
 
-A React TypeScript application with integrated AG-UI chat assistant.
+A React TypeScript demo observability application with integrated HolmesGPT AG-UI chat assistant.
 
 ## Setup
 
@@ -24,9 +24,10 @@ A React TypeScript application with integrated AG-UI chat assistant.
 
 The app expects an AG-UI compatible agent service running at the base URL specified in `AGENT_URL`. The chat endpoint will be accessed at `${AGENT_URL}/api/agui/chat`. The agent should:
 
-- Accept POST requests with `RunAgentInput` payload
-- Return Server-Sent Events (SSE) stream
 - Follow the AG-UI Protocol
+- Accept POST requests with `RunAgentInput` payload
+- Return Server-Sent Events (SSE) stream containing AG-UI events
+
 
 ## AG-UI Integration
 
