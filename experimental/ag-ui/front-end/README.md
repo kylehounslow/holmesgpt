@@ -2,6 +2,8 @@
 
 A React TypeScript demo observability application with integrated HolmesGPT AG-UI chat assistant.
 
+![ExampleOps demo video](https://github.com/kylehounslow/holmesgpt/blob/docs/experimental/ag-ui/docs/holmesgpt-agui-demo-1.gif?raw=true)
+
 ## Setup
 
 1. Install dependencies:

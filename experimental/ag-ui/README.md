@@ -4,9 +4,11 @@ AG-UI is an experimental extension to HolmesGPT that demonstrates [AG-UI](https:
 
 *⚠️ **Disclaimer**: AG-UI is experimental within HolmesGPT. APIs and interfaces may change as the project evolves. The demonstration server and frontend is not intended for production use.*
 
+![ExampleOps demo video](https://github.com/kylehounslow/holmesgpt/blob/docs/experimental/ag-ui/docs/holmesgpt-agui-demo-1.gif?raw=true)
+
 ### Known Limitations:
 1. Front-end tool auto-discovery and integration with LLM is not yet supported. Front-end tool discovery and execution is handled statically in the back-end. 
-
+1. Tested with Anthropic Claude Sonnet 3.7 and 4.0 on AWS Bedrock only.
 
 ## 🛠️ Quick Start
 
