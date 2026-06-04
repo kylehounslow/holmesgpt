@@ -492,6 +492,15 @@ def check_llm_api_with_test_call():
         # If model list exists, we don't need to check classifier model since its checked in the model list
         return True, None
 
+    # Local-eval patch: when BEDROCK_CLASSIFIER is set, the classifier scores via
+    # Bedrock through litellm (see classifiers._bedrock_evaluate_correctness), not
+    # the OpenAI SDK. Skip the OpenAI-client pre-flight check in that mode.
+    if os.environ.get("BEDROCK_CLASSIFIER"):
+        if failed_models:
+            pass  # fall through to model-under-test reporting below
+        else:
+            return True, None
+
     # Check classifier model (using the original logic for compatibility)
     try:
         client, model = create_llm_client()

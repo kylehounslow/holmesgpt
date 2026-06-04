@@ -1,3 +1,4 @@
+import os
 import logging
 from dataclasses import dataclass
 from typing import List, Optional, Union
@@ -132,6 +133,80 @@ except Exception:
     client = None
 
 
+class _BedrockScore:
+    """Minimal stand-in for autoevals' Score: exposes .score and .metadata."""
+
+    def __init__(self, score, metadata):
+        self.score = score
+        self.metadata = metadata or {}
+
+
+def _bedrock_evaluate_correctness(expected_elements_str, output, evaluation_type):
+    """Judge via Bedrock through litellm, bypassing the OpenAI SDK + autoevals.
+
+    Local-eval patch: HolmesGPT's classifier talks to OpenAI/Azure directly and
+    cannot use Bedrock. We have no OpenAI key, so when BEDROCK_CLASSIFIER is set we
+    score with a Bedrock model (default Claude Sonnet) instead. Returns the same
+    .score (1/0) / .metadata{rationale} shape callers expect. NOTE: this judge is
+    NOT gpt-4.1, so absolute scores may differ from the published leaderboard;
+    relative pass/fail shape should hold.
+    """
+    import json as _json
+    import litellm
+
+    model = os.environ.get(
+        "BEDROCK_CLASSIFIER_MODEL",
+        "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    )
+    if evaluation_type == "loose":
+        criteria = (
+            "A: The OUTPUT reasonably matches the EXPECTED content\n"
+            "B: The OUTPUT does not match the EXPECTED content"
+        )
+    else:
+        criteria = (
+            "A: All elements are present\n"
+            "B: Either no element is present or only some but not all elements are present"
+        )
+    prompt = f"""You are evaluating the correctness of an OUTPUT given by an LLM.
+Correctness is defined by the presence of EXPECTED ELEMENTS in the OUTPUT. An element
+need not appear verbatim; its essence must be present, even across multiple sentences.
+
+# EXPECTED ELEMENTS
+- {expected_elements_str}
+
+# OUTPUT
+{output}
+
+Reason step by step, then return your verdict as STRICT JSON on the final line:
+{{"choice": "A" or "B", "rationale": "<one sentence>"}}
+Choices:
+{criteria}
+"""
+    resp = litellm.completion(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1024,
+        temperature=0,
+        aws_region_name=os.environ.get("AWS_REGION", "us-west-2"),
+    )
+    text = (resp.choices[0].message.content or "").strip()
+    choice, rationale = "B", text[:300]
+    # Parse the last JSON object in the response.
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                obj = _json.loads(line)
+                choice = obj.get("choice", "B").strip().upper()[:1]
+                rationale = obj.get("rationale", rationale)
+                break
+            except Exception:
+                pass
+    score = 1 if choice == "A" else 0
+    return _BedrockScore(score, {"rationale": rationale, "judge_model": model})
+
+
 def evaluate_correctness(
     expected_elements: Union[str, List[str]],
     output: Optional[str],
@@ -147,6 +222,25 @@ def evaluate_correctness(
     if isinstance(expected_elements, str):
         expected_elements = [expected_elements]
     expected_elements_str = "\n- ".join(expected_elements)
+
+    # Bedrock judge path (local-eval patch; see _bedrock_evaluate_correctness).
+    if os.environ.get("BEDROCK_CLASSIFIER"):
+        logger.info("Evaluating correctness with Bedrock judge (local patch)")
+        result = _bedrock_evaluate_correctness(
+            expected_elements_str, output, evaluation_type
+        )
+        if parent_span:
+            with parent_span.start_span(
+                name="Correctness", type=SpanTypeAttribute.SCORE
+            ) as span:
+                span.log(
+                    input="(bedrock judge)",
+                    output=result.metadata.get("rationale", ""),
+                    expected=expected_elements_str,
+                    scores={"correctness": result.score},
+                    metadata=result.metadata,
+                )
+        return result
 
     prompt_prefix = """
 You are evaluating the correctness of an OUTPUT given by a LLM. You must return a score that
