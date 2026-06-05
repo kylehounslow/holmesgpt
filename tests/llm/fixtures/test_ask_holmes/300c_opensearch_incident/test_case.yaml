@@ -25,29 +25,18 @@ port_forwards:
 
 before_test: |
   source ../../shared/opensearch_test_utils.sh
-  os_setup "app-300c" 9303
-  os_wait_api
+  os_setup "app-300c"
 
   os_create_index "app-300c-logs" '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"level":{"type":"keyword"},"service":{"type":"keyword"},"trace_id":{"type":"keyword"},"message":{"type":"text"}}}}'
 
-  BULK=/tmp/os_300c_$$.ndjson
-  cat > "$BULK" <<'NDJSON'
-  {"index":{}}
-  {"timestamp":"2025-05-02T14:00:00Z","level":"INFO","service":"checkout-api","message":"Healthy. Processing checkout requests normally."}
-  {"index":{}}
-  {"timestamp":"2025-05-02T14:28:00Z","level":"WARN","service":"checkout-api","message":"Database connection pool usage at 92%"}
-  {"index":{}}
-  {"timestamp":"2025-05-02T14:30:00Z","level":"ERROR","service":"checkout-api","trace_id":"txn-CPX-44913","message":"Failed to acquire database connection - pool exhausted (max=20, active=20)"}
-  {"index":{}}
-  {"timestamp":"2025-05-02T14:30:05Z","level":"ERROR","service":"checkout-api","trace_id":"txn-CPX-44913","message":"Health check /healthz failed: could not acquire connection from pool within 5000ms"}
-  {"index":{}}
-  {"timestamp":"2025-05-02T14:31:00Z","level":"ERROR","service":"checkout-api","message":"Request rejected: connection pool exhausted, returning 503"}
-  {"index":{}}
-  {"timestamp":"2025-05-02T15:05:00Z","level":"INFO","service":"checkout-api","message":"Connection pool recovered, error rate back to baseline"}
-  NDJSON
-  sed -i 's/^  //' "$BULK"
-  os_bulk "app-300c-logs" "$BULK"
-  rm -f "$BULK"
+  BULK=/tmp/os_300c_$$.ndjson; : > "$BULK"
+  os_doc "$BULK" '{"timestamp":"2025-05-02T14:00:00Z","level":"INFO","service":"checkout-api","message":"Healthy. Processing checkout requests normally."}'
+  os_doc "$BULK" '{"timestamp":"2025-05-02T14:28:00Z","level":"WARN","service":"checkout-api","message":"Database connection pool usage at 92%"}'
+  os_doc "$BULK" '{"timestamp":"2025-05-02T14:30:00Z","level":"ERROR","service":"checkout-api","trace_id":"txn-CPX-44913","message":"Failed to acquire database connection - pool exhausted (max=20, active=20)"}'
+  os_doc "$BULK" '{"timestamp":"2025-05-02T14:30:05Z","level":"ERROR","service":"checkout-api","trace_id":"txn-CPX-44913","message":"Health check /healthz failed: could not acquire connection from pool within 5000ms"}'
+  os_doc "$BULK" '{"timestamp":"2025-05-02T14:31:00Z","level":"ERROR","service":"checkout-api","message":"Request rejected: connection pool exhausted, returning 503"}'
+  os_doc "$BULK" '{"timestamp":"2025-05-02T15:05:00Z","level":"INFO","service":"checkout-api","message":"Connection pool recovered, error rate back to baseline"}'
+  os_bulk "app-300c-logs" "$BULK"; rm -f "$BULK"
 
   os_assert_count "app-300c-logs" '{"query":{"term":{"level":"ERROR"}}}' 3
   echo "✅ Seeded incident: connection pool exhaustion around 14:30 UTC"

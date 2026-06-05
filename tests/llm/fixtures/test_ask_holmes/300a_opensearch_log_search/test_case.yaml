@@ -23,29 +23,18 @@ port_forwards:
 
 before_test: |
   source ../../shared/opensearch_test_utils.sh
-  os_setup "app-300a" 9301
-  os_wait_api
+  os_setup "app-300a"
 
   os_create_index "app-300a-logs" '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"level":{"type":"keyword"},"service":{"type":"keyword"},"error_code":{"type":"keyword"},"message":{"type":"text"}}}}'
 
-  BULK=/tmp/os_300a_$$.ndjson
-  cat > "$BULK" <<'NDJSON'
-  {"index":{}}
-  {"timestamp":"2025-03-10T09:00:00Z","level":"INFO","service":"checkout-api","message":"Service started"}
-  {"index":{}}
-  {"timestamp":"2025-03-10T09:05:00Z","level":"ERROR","service":"checkout-api","error_code":"ERR-5521","message":"Payment gateway timeout - ERR-5521: upstream did not respond within 30s"}
-  {"index":{}}
-  {"timestamp":"2025-03-10T09:06:00Z","level":"WARN","service":"checkout-api","message":"Retrying payment authorization"}
-  {"index":{}}
-  {"timestamp":"2025-03-10T09:10:00Z","level":"ERROR","service":"order-service","error_code":"ERR-8830","message":"Inventory reservation failed - ERR-8830: SKU lock contention"}
-  {"index":{}}
-  {"timestamp":"2025-03-10T09:12:00Z","level":"INFO","service":"order-service","message":"Order batch processed"}
-  {"index":{}}
-  {"timestamp":"2025-03-10T09:18:00Z","level":"ERROR","service":"shipping-api","error_code":"ERR-3074","message":"Carrier API rejected request - ERR-3074: invalid postal code format"}
-  NDJSON
-  sed -i 's/^  //' "$BULK"
-  os_bulk "app-300a-logs" "$BULK"
-  rm -f "$BULK"
+  BULK=/tmp/os_300a_$$.ndjson; : > "$BULK"
+  os_doc "$BULK" '{"timestamp":"2025-03-10T09:00:00Z","level":"INFO","service":"checkout-api","message":"Service started"}'
+  os_doc "$BULK" '{"timestamp":"2025-03-10T09:05:00Z","level":"ERROR","service":"checkout-api","error_code":"ERR-5521","message":"Payment gateway timeout - ERR-5521: upstream did not respond within 30s"}'
+  os_doc "$BULK" '{"timestamp":"2025-03-10T09:06:00Z","level":"WARN","service":"checkout-api","message":"Retrying payment authorization"}'
+  os_doc "$BULK" '{"timestamp":"2025-03-10T09:10:00Z","level":"ERROR","service":"order-service","error_code":"ERR-8830","message":"Inventory reservation failed - ERR-8830: SKU lock contention"}'
+  os_doc "$BULK" '{"timestamp":"2025-03-10T09:12:00Z","level":"INFO","service":"order-service","message":"Order batch processed"}'
+  os_doc "$BULK" '{"timestamp":"2025-03-10T09:18:00Z","level":"ERROR","service":"shipping-api","error_code":"ERR-3074","message":"Carrier API rejected request - ERR-3074: invalid postal code format"}'
+  os_bulk "app-300a-logs" "$BULK"; rm -f "$BULK"
 
   os_assert_count "app-300a-logs" '{"query":{"term":{"level":"ERROR"}}}' 3
   echo "✅ Test index seeded with 3 ERROR needles"
