@@ -1,0 +1,52 @@
+# OpenSearch time-series gap detection (ported from 189). 48 hours of hourly metrics
+# with hours 38-43 (2024-01-15 14:00-19:59 UTC) deliberately missing. Anti-hallucination:
+# the gap window and the marker request id REQ-37-8A4F2 (last entry before the gap) are
+# only discoverable by analyzing the data.
+user_prompt: "Our metrics dashboard shows missing data. Analyze the app-300g-metrics-timeseries index in OpenSearch to find any gaps in data collection. When did data stop and when did it resume? What was the last request ID before the gap started?"
+
+expected_output:
+  - "Must identify a gap in the data around 2024-01-15"
+  - "Must report the gap started around 14:00 UTC and resumed around 20:00 UTC (approximately 6 hours)"
+  - "Must mention request ID REQ-37-8A4F2 as the last entry before the gap started"
+
+tags:
+  - opensearch
+  - medium
+  - benchmark
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: app-300g
+    service: opensearch
+    local_port: 9307
+    remote_port: 9200
+
+before_test: |
+  source ../../shared/opensearch_test_utils.sh
+  os_setup "app-300g"
+
+  os_create_index "app-300g-metrics-timeseries" '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"@timestamp":{"type":"date"},"request_id":{"type":"keyword"},"metric_name":{"type":"keyword"},"value":{"type":"float"},"host":{"type":"keyword"}}}}'
+
+  # Hourly points for 48 hours from 2024-01-14T00:00Z, skipping hours 38-43 (the gap).
+  # Deterministic request ids (no RANDOM) so the run is reproducible; hour 37 is the
+  # fixed marker the question asks for.
+  BULK=/tmp/os_300g_$$.ndjson; : > "$BULK"
+  for hour in $(seq 0 47); do
+    if [ "$hour" -ge 38 ] && [ "$hour" -le 43 ]; then continue; fi
+    DAY=$((14 + hour / 24)); HOD=$((hour % 24))
+    TS=$(printf "2024-01-%02dT%02d:00:00Z" "$DAY" "$HOD")
+    if [ "$hour" -eq 37 ]; then RID="REQ-37-8A4F2"; else RID=$(printf "REQ-%02d-%04d" "$HOD" "$hour"); fi
+    CPU=$((20 + (hour * 7) % 60))
+    HOST=$((hour % 5 + 1))
+    os_doc "$BULK" "{\"@timestamp\":\"$TS\",\"request_id\":\"$RID\",\"metric_name\":\"cpu_usage\",\"value\":${CPU}.0,\"host\":\"server-${HOST}\"}"
+  done
+  os_bulk "app-300g-metrics-timeseries" "$BULK"; rm -f "$BULK"
+
+  # 48 hours - 6 gap hours = 42 documents.
+  os_assert_count "app-300g-metrics-timeseries" '{"query":{"match_all":{}}}' 42
+  os_assert_count "app-300g-metrics-timeseries" '{"query":{"term":{"request_id":"REQ-37-8A4F2"}}}' 1
+  echo "✅ Seeded 42 hourly points with a 6-hour gap; marker REQ-37-8A4F2 present"
+
+after_test: |
+  kubectl delete namespace app-300g || true

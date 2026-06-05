@@ -1,0 +1,69 @@
+# OpenSearch cross-service trace correlation (ported from 190). The agent must search
+# across multiple app-300f-service-* indices for a trace id and find where the error
+# originated. Anti-hallucination: the error trace id, originating service, and error
+# code are only discoverable by querying.
+user_prompt: "A customer reported an order failure with trace ID TRACE-X7K9M2-ERR. Search across all our app-300f-service-* indexes in OpenSearch to trace the request flow and find where the error originated. What error code was returned?"
+
+expected_output:
+  - "Must search across multiple indexes using trace ID TRACE-X7K9M2-ERR"
+  - "Must identify the error originated in the inventory service"
+  - "Must report error code INV-ERR-4082 (insufficient stock)"
+
+tags:
+  - opensearch
+  - medium
+  - benchmark
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: app-300f
+    service: opensearch
+    local_port: 9306
+    remote_port: 9200
+
+before_test: |
+  source ../../shared/opensearch_test_utils.sh
+  os_setup "app-300f"
+
+  MAPPING='{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"@timestamp":{"type":"date"},"trace_id":{"type":"keyword"},"span_id":{"type":"keyword"},"service":{"type":"keyword"},"level":{"type":"keyword"},"message":{"type":"text"},"error_code":{"type":"keyword"},"duration_ms":{"type":"integer"}}}}'
+  for svc in gateway auth orders inventory; do
+    os_create_index "app-300f-service-${svc}" "$MAPPING"
+  done
+
+  # Bulk file targets a specific _index per line (cross-index bulk).
+  BULK=/tmp/os_300f_$$.ndjson; : > "$BULK"
+  bulkdoc() { printf '{"index":{"_index":"%s"}}\n%s\n' "$1" "$2" >> "$BULK"; }
+
+  # 50 deterministic noise traces (success) across all 4 services.
+  for i in $(seq 1 50); do
+    TID="TRACE-N$(printf '%05d' $i)"
+    MIN=$(printf '%02d' $((i % 60)))
+    bulkdoc app-300f-service-gateway   "{\"@timestamp\":\"2024-01-15T10:${MIN}:00Z\",\"trace_id\":\"${TID}\",\"span_id\":\"span-gw-${i}\",\"service\":\"gateway\",\"level\":\"INFO\",\"message\":\"Received request POST /api/orders\",\"duration_ms\":3}"
+    bulkdoc app-300f-service-auth      "{\"@timestamp\":\"2024-01-15T10:${MIN}:00.010Z\",\"trace_id\":\"${TID}\",\"span_id\":\"span-auth-${i}\",\"service\":\"auth\",\"level\":\"INFO\",\"message\":\"User authenticated successfully\",\"duration_ms\":12}"
+    bulkdoc app-300f-service-orders    "{\"@timestamp\":\"2024-01-15T10:${MIN}:00.030Z\",\"trace_id\":\"${TID}\",\"span_id\":\"span-orders-${i}\",\"service\":\"orders\",\"level\":\"INFO\",\"message\":\"Order created, checking inventory\",\"duration_ms\":25}"
+    bulkdoc app-300f-service-inventory "{\"@timestamp\":\"2024-01-15T10:${MIN}:00.080Z\",\"trace_id\":\"${TID}\",\"span_id\":\"span-inv-${i}\",\"service\":\"inventory\",\"level\":\"INFO\",\"message\":\"Stock reserved successfully\",\"duration_ms\":55}"
+  done
+
+  # The error trace - root cause in inventory, propagated up.
+  ET="TRACE-X7K9M2-ERR"
+  bulkdoc app-300f-service-gateway   "{\"@timestamp\":\"2024-01-15T10:25:00Z\",\"trace_id\":\"${ET}\",\"span_id\":\"span-gw-err\",\"service\":\"gateway\",\"level\":\"INFO\",\"message\":\"Received request POST /api/orders for user_12847\",\"duration_ms\":2}"
+  bulkdoc app-300f-service-auth      "{\"@timestamp\":\"2024-01-15T10:25:00.010Z\",\"trace_id\":\"${ET}\",\"span_id\":\"span-auth-err\",\"service\":\"auth\",\"level\":\"INFO\",\"message\":\"User user_12847 authenticated via JWT token\",\"duration_ms\":15}"
+  bulkdoc app-300f-service-orders    "{\"@timestamp\":\"2024-01-15T10:25:00.030Z\",\"trace_id\":\"${ET}\",\"span_id\":\"span-orders-err\",\"service\":\"orders\",\"level\":\"INFO\",\"message\":\"Processing order for product SKU-78234, quantity: 500\",\"duration_ms\":25}"
+  bulkdoc app-300f-service-inventory "{\"@timestamp\":\"2024-01-15T10:25:00.080Z\",\"trace_id\":\"${ET}\",\"span_id\":\"span-inv-err\",\"service\":\"inventory\",\"level\":\"ERROR\",\"message\":\"Failed to reserve stock for SKU-78234: insufficient inventory. Requested: 500, Available: 23\",\"error_code\":\"INV-ERR-4082\",\"duration_ms\":45}"
+  bulkdoc app-300f-service-orders    "{\"@timestamp\":\"2024-01-15T10:25:00.130Z\",\"trace_id\":\"${ET}\",\"span_id\":\"span-orders-err-2\",\"service\":\"orders\",\"level\":\"ERROR\",\"message\":\"Order failed: inventory service returned error INV-ERR-4082\",\"error_code\":\"ORD-ERR-1001\",\"duration_ms\":130}"
+  bulkdoc app-300f-service-gateway   "{\"@timestamp\":\"2024-01-15T10:25:00.140Z\",\"trace_id\":\"${ET}\",\"span_id\":\"span-gw-err-2\",\"service\":\"gateway\",\"level\":\"ERROR\",\"message\":\"Request failed with 400 Bad Request: Order could not be fulfilled\",\"error_code\":\"GW-ERR-400\",\"duration_ms\":145}"
+
+  # Bulk into the cluster (index specified per line), then refresh all service indices.
+  kubectl exec -i -n app-300f deployment/opensearch -- \
+    curl -sf -X POST "http://localhost:9200/_bulk" \
+    -H 'Content-Type: application/x-ndjson' --data-binary @- < "$BULK" | grep -q '"errors":false' \
+    || { echo "❌ cross-index bulk had errors"; exit 1; }
+  rm -f "$BULK"
+  os_req POST "/app-300f-service-*/_refresh" >/dev/null
+
+  os_assert_count "app-300f-service-*" '{"query":{"term":{"trace_id":"TRACE-X7K9M2-ERR"}}}' 6
+  echo "✅ Seeded 4 service indices; error trace TRACE-X7K9M2-ERR present (6 spans)"
+
+after_test: |
+  kubectl delete namespace app-300f || true

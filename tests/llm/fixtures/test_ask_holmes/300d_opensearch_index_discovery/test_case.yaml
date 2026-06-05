@@ -1,0 +1,40 @@
+# OpenSearch index discovery (ported from 183b). Anti-hallucination: the index name
+# carries a hardcoded identifier 'xq7n4f2p' the agent can't know without listing indices.
+user_prompt: "List all indices in OpenSearch that start with 'app-300d-' and tell me the document count for each."
+
+expected_output:
+  - "Must find and report the index 'app-300d-data-xq7n4f2p'"
+  - "Must report the document count as 5 documents for this index"
+
+tags:
+  - opensearch
+  - question-answer
+  - medium
+  - benchmark
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: app-300d
+    service: opensearch
+    local_port: 9304
+    remote_port: 9200
+
+before_test: |
+  source ../../shared/opensearch_test_utils.sh
+  os_setup "app-300d"
+
+  IDX="app-300d-data-xq7n4f2p"
+  os_create_index "$IDX" '{"settings":{"number_of_shards":1,"number_of_replicas":0}}'
+
+  BULK=/tmp/os_300d_$$.ndjson; : > "$BULK"
+  for i in 1 2 3 4 5; do
+    os_doc "$BULK" "{\"message\":\"Test document $i for Holmes eval\",\"level\":\"INFO\",\"timestamp\":\"2025-01-01T12:00:0${i}Z\"}"
+  done
+  os_bulk "$IDX" "$BULK"; rm -f "$BULK"
+
+  os_assert_count "$IDX" '{"query":{"match_all":{}}}' 5
+  echo "✅ Test index $IDX created with 5 documents"
+
+after_test: |
+  kubectl delete namespace app-300d || true

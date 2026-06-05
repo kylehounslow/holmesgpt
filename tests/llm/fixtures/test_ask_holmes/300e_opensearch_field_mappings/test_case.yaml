@@ -1,0 +1,40 @@
+# OpenSearch field-mapping discovery (ported from 183e). Anti-hallucination: the
+# agent can't know the schema (incl. nested fields + types) without the mappings API.
+user_prompt: "What are the field mappings for the 'app-300e-transactions' index in OpenSearch? List all fields with their data types."
+
+expected_output:
+  - "Must identify the 'transaction_id' field as type keyword"
+  - "Must identify the 'amount' field as type double"
+  - "Must identify the 'metadata.region' nested field as type keyword"
+  - "Must identify the 'metadata.priority' nested field as type integer"
+  - "Must identify the 'processed_at' field as type date"
+
+tags:
+  - opensearch
+  - question-answer
+  - medium
+  - benchmark
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: app-300e
+    service: opensearch
+    local_port: 9305
+    remote_port: 9200
+
+before_test: |
+  source ../../shared/opensearch_test_utils.sh
+  os_setup "app-300e"
+
+  os_create_index "app-300e-transactions" '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"transaction_id":{"type":"keyword"},"amount":{"type":"double"},"currency":{"type":"keyword"},"status":{"type":"keyword"},"metadata":{"properties":{"region":{"type":"keyword"},"priority":{"type":"integer"},"tags":{"type":"keyword"}}},"processed_at":{"type":"date"},"description":{"type":"text"}}}}'
+
+  # One sample doc to confirm the mappings stick.
+  BULK=/tmp/os_300e_$$.ndjson; : > "$BULK"
+  os_doc "$BULK" '{"transaction_id":"TXN-12345","amount":99.99,"currency":"USD","status":"completed","metadata":{"region":"us-east-1","priority":1,"tags":["retail","online"]},"processed_at":"2025-01-01T10:00:00Z","description":"Test transaction for schema validation"}'
+  os_bulk "app-300e-transactions" "$BULK"; rm -f "$BULK"
+
+  echo "✅ Index ready: transaction_id(keyword), amount(double), metadata.region(keyword), metadata.priority(integer), processed_at(date)"
+
+after_test: |
+  kubectl delete namespace app-300e || true

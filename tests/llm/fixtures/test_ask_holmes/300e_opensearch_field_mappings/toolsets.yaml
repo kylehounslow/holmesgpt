@@ -1,0 +1,12 @@
+# OpenSearch via the elasticsearch toolset, in-cluster backend over port-forward.
+toolsets:
+  kubernetes/logs:
+    enabled: false
+  elasticsearch/data:
+    enabled: true
+    config:
+      api_url: "http://localhost:9305"
+  elasticsearch/cluster:
+    enabled: true
+    config:
+      api_url: "http://localhost:9305"
