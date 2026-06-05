@@ -1,0 +1,26 @@
+# Ported from our-harness cases-rca-benchmark-v1.json. Trace RCA over a static deterministic OTel-span dataset (shared/otel_spans.ndjson) seeded into a shared 'spans' index. Real signatures harvested from the OpenSearch playground (our-harness/opensearch-port/GROUND_TRUTH.md); playground not in runtime path.
+user_prompt: Across all services, which one has produced the most error spans? The span data is in the OpenSearch index 'spans'. Give the service name and roughly how many error spans it has.
+expected_output:
+- Must identify 'frontend' as the service with the most error spans
+- Must report frontend has 120 error spans (status.code = 2)
+- Should note frontend-proxy (80) as the next highest
+- Must reach this via an aggregation over the spans index filtering status.code = 2, grouped by serviceName
+tags:
+- opensearch
+- traces
+- easy
+- benchmark
+setup_timeout: 400
+port_forwards:
+- namespace: app-301a
+  service: opensearch
+  local_port: 9311
+  remote_port: 9200
+before_test: |
+  source ../../shared/opensearch_test_utils.sh
+  os_setup "app-301a"
+  os_load_spans "spans"
+  os_assert_count "spans" '{"query":{"term":{"status.code":2}}}' 485
+  echo "Loaded shared OTel span dataset into spans (485 error spans)"
+after_test: |
+  kubectl delete namespace app-301a || true

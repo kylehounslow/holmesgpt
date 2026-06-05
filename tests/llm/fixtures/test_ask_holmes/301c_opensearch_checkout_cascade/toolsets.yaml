@@ -1,0 +1,12 @@
+# OpenSearch (elasticsearch toolset) against the in-cluster span backend, port-forward.
+toolsets:
+  kubernetes/logs:
+    enabled: false
+  elasticsearch/data:
+    enabled: true
+    config:
+      api_url: "http://localhost:9313"
+  elasticsearch/cluster:
+    enabled: true
+    config:
+      api_url: "http://localhost:9313"

@@ -1,0 +1,24 @@
+# Ported from our-harness cases-rca-benchmark-v1.json. Trace RCA over a static deterministic OTel-span dataset (shared/otel_spans.ndjson) seeded into a shared 'spans' index. Real signatures harvested from the OpenSearch playground (our-harness/opensearch-port/GROUND_TRUTH.md); playground not in runtime path.
+user_prompt: The travel-planner agent is reporting partial failures. Using the 'spans' index in OpenSearch, find what is going wrong in its sub-agents.
+expected_output:
+- 'Must identify travel-planner status.message ''Partial failure: 1 sub-agent(s) failed'''
+- Must identify the sub-agent failure relates to the Events API (a tool_error / Events API returned an error)
+tags:
+- opensearch
+- traces
+- hard
+- benchmark
+setup_timeout: 400
+port_forwards:
+- namespace: app-301h
+  service: opensearch
+  local_port: 9318
+  remote_port: 9200
+before_test: |
+  source ../../shared/opensearch_test_utils.sh
+  os_setup "app-301h"
+  os_load_spans "spans"
+  os_assert_count "spans" '{"query":{"term":{"status.code":2}}}' 485
+  echo "Loaded shared OTel span dataset into spans (485 error spans)"
+after_test: |
+  kubectl delete namespace app-301h || true

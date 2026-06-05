@@ -1,0 +1,25 @@
+# Ported from our-harness cases-rca-benchmark-v1.json. Trace RCA over a static deterministic OTel-span dataset (shared/otel_spans.ndjson) seeded into a shared 'spans' index. Real signatures harvested from the OpenSearch playground (our-harness/opensearch-port/GROUND_TRUTH.md); playground not in runtime path.
+user_prompt: Which service has the worst request latency in the 'spans' index in OpenSearch (excluding long-lived streaming spans), and what is the approximate value?
+expected_output:
+- Must identify accounting as the slowest genuine service (~40 seconds, durationInNanos ~ 40000000000)
+- Must EXCLUDE the flagd / fraud-detection ~600s spans as long-lived streaming artifacts, not real request latency
+- Should compute latency from durationInNanos (divide by 1e9 for seconds)
+tags:
+- opensearch
+- traces
+- hard
+- benchmark
+setup_timeout: 400
+port_forwards:
+- namespace: app-301g
+  service: opensearch
+  local_port: 9317
+  remote_port: 9200
+before_test: |
+  source ../../shared/opensearch_test_utils.sh
+  os_setup "app-301g"
+  os_load_spans "spans"
+  os_assert_count "spans" '{"query":{"term":{"status.code":2}}}' 485
+  echo "Loaded shared OTel span dataset into spans (485 error spans)"
+after_test: |
+  kubectl delete namespace app-301g || true

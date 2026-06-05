@@ -83,6 +83,15 @@ os_bulk() {
 # Append one log doc to an NDJSON bulk file. Usage: os_doc <file> <json_doc_object>
 os_doc() { printf '{"index":{}}\n%s\n' "$2" >> "$1"; }
 
+# Load the shared static OTel-span dataset (committed at shared/otel_spans.ndjson, with
+# the otel-v1-apm-span schema mapping) into <index>. Used by the trace-RCA cases, which
+# all query one shared, fixed dataset. Usage: os_load_spans <index>
+os_load_spans() {
+  local index="$1"
+  os_create_index "$index" "$(cat ../../shared/otel_spans_mapping.json)"
+  os_bulk "$index" ../../shared/otel_spans.ndjson
+}
+
 # Assert a _count query returns expected. Usage: os_assert_count <index> <query_json> <expected>
 os_assert_count() {
   local index="$1" query="$2" expected="$3"
