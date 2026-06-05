@@ -1,0 +1,55 @@
+# OpenSearch historical logs, pod deleted (ported from 101_loki_historical_logs_pod_deleted).
+# The payment-api pod that produced the logs is DELETED before the test, so `kubectl logs`
+# returns nothing — the agent must query the OpenSearch log index to find the root cause.
+# Anti-hallucination: the connection-pool-exhaustion cause is only in the indexed logs.
+user_prompt: "The payment-api pod in namespace app-300j had issues on 2025-08-02 around 13:45 UTC, but the pod no longer exists. Its logs are shipped to the OpenSearch index 'app-300j-logs'. What happened?"
+
+expected_output:
+  - "Must identify that payment-api failed due to database connection pool exhaustion"
+  - "Must reference evidence from the indexed logs (the pool-exhausted / could-not-acquire-connection errors around 13:45 UTC)"
+  - "Must use the OpenSearch log index (the pod is gone, so kubectl logs is not a usable source)"
+
+tags:
+  - logs
+  - opensearch
+  - kubernetes
+  - medium
+  - benchmark
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: app-300j
+    service: opensearch
+    local_port: 9309
+    remote_port: 9200
+
+before_test: |
+  source ../../shared/opensearch_test_utils.sh
+  os_setup "app-300j"
+
+  # Deploy a payment-api pod, then delete it after the index is seeded — so at test time
+  # the pod is gone and only the OpenSearch logs remain (the point of the case).
+  kubectl run payment-api --image=busybox:1.36 -n app-300j --restart=Never \
+    --command -- sh -c 'echo started; sleep 3600' 2>/dev/null || true
+  kubectl wait --for=condition=ready pod/payment-api -n app-300j --timeout=60s 2>/dev/null || true
+
+  os_create_index "app-300j-logs" '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"level":{"type":"keyword"},"pod":{"type":"keyword"},"message":{"type":"text"}}}}'
+
+  BULK=/tmp/os_300j_$$.ndjson; : > "$BULK"
+  os_doc "$BULK" '{"timestamp":"2025-08-02T13:30:00Z","level":"INFO","pod":"payment-api","message":"Healthy. Processing payments normally."}'
+  os_doc "$BULK" '{"timestamp":"2025-08-02T13:43:00Z","level":"WARN","pod":"payment-api","message":"Database connection pool usage at 95% (19/20)"}'
+  os_doc "$BULK" '{"timestamp":"2025-08-02T13:45:00Z","level":"ERROR","pod":"payment-api","message":"Failed to acquire database connection - pool exhausted (max=20, active=20)"}'
+  os_doc "$BULK" '{"timestamp":"2025-08-02T13:45:10Z","level":"ERROR","pod":"payment-api","message":"Health check /healthz failed: could not acquire connection from pool within 5000ms"}'
+  os_doc "$BULK" '{"timestamp":"2025-08-02T13:46:00Z","level":"ERROR","pod":"payment-api","message":"ConnectionPoolExhausted: rejecting request, returning 503"}'
+  os_doc "$BULK" '{"timestamp":"2025-08-02T14:50:00Z","level":"INFO","pod":"payment-api","message":"Connection pool recovered, error rate back to baseline"}'
+  os_bulk "app-300j-logs" "$BULK"; rm -f "$BULK"
+
+  os_assert_count "app-300j-logs" '{"query":{"term":{"level":"ERROR"}}}' 3
+
+  # Delete the pod: the agent must NOT be able to kubectl logs it.
+  kubectl delete pod payment-api -n app-300j --wait=true --timeout=60s 2>/dev/null || true
+  echo "✅ Seeded logs in OpenSearch; payment-api pod deleted (logs only survive in the index)"
+
+after_test: |
+  kubectl delete namespace app-300j || true

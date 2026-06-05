@@ -1,0 +1,50 @@
+# OpenSearch "nearby lines" RCA (ported from 108_logs_nearby_lines). The cause of the
+# Connection refused errors is in the log line immediately BEFORE the first error: a
+# config reload that loaded staging DB settings into production. The agent must order
+# logs by time and read the context preceding the first error, not just match the error.
+# Anti-hallucination: the staging-config cause only appears in that one preceding line.
+user_prompt: "What is causing connection refused errors in api-service? The logs are in the OpenSearch index 'app-300h-logs'."
+
+expected_output:
+  - "Must identify that the Connection refused errors began right after a configuration reload"
+  - "Must identify that the reload loaded staging database settings into production (the root cause), not just report the errors themselves"
+
+tags:
+  - logs
+  - opensearch
+  - hard
+  - benchmark
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: app-300h
+    service: opensearch
+    local_port: 9308
+    remote_port: 9200
+
+before_test: |
+  source ../../shared/opensearch_test_utils.sh
+  os_setup "app-300h"
+
+  os_create_index "app-300h-logs" '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"level":{"type":"keyword"},"component":{"type":"keyword"},"message":{"type":"text"}}}}'
+
+  # Time-ordered narrative: healthy -> config reload (the cause) -> first connection
+  # refused -> cascade. The cause line sits immediately before the first error.
+  BULK=/tmp/os_300h_$$.ndjson; : > "$BULK"
+  os_doc "$BULK" '{"timestamp":"2024-01-15T10:00:00.000Z","level":"INFO","component":"api-service","message":"Service started, connected to database db-prod.internal:5432"}'
+  os_doc "$BULK" '{"timestamp":"2024-01-15T10:02:00.000Z","level":"INFO","component":"api-service","message":"Health check OK, 0 errors in last 2m"}'
+  os_doc "$BULK" '{"timestamp":"2024-01-15T10:04:30.000Z","level":"INFO","component":"api-service","message":"Serving traffic normally, p99 latency 40ms"}'
+  os_doc "$BULK" '{"timestamp":"2024-01-15T10:05:00.000Z","level":"WARN","component":"api-service","message":"Configuration file change detected, reloading config"}'
+  os_doc "$BULK" '{"timestamp":"2024-01-15T10:05:00.500Z","level":"WARN","component":"api-service","message":"Config reloaded: database endpoint now db-staging.internal:5432 (loaded staging profile in production)"}'
+  os_doc "$BULK" '{"timestamp":"2024-01-15T10:07:30.200Z","level":"ERROR","component":"api-service","message":"500 GET /api/health - Connection refused to db-staging.internal:5432"}'
+  os_doc "$BULK" '{"timestamp":"2024-01-15T10:07:31.000Z","level":"ERROR","component":"api-service","message":"Connection refused: could not reach database db-staging.internal:5432"}'
+  os_doc "$BULK" '{"timestamp":"2024-01-15T10:08:00.000Z","level":"ERROR","component":"api-service","message":"Connection refused (repeated catch errors): upstream database unavailable"}'
+  os_doc "$BULK" '{"timestamp":"2024-01-15T10:09:00.000Z","level":"ERROR","component":"api-service","message":"Connection refused: health endpoint failing, returning 503"}'
+  os_bulk "app-300h-logs" "$BULK"; rm -f "$BULK"
+
+  os_assert_count "app-300h-logs" '{"query":{"match":{"message":"Connection refused"}}}' 4
+  echo "✅ Seeded: config reload (staging settings) precedes the first Connection refused error"
+
+after_test: |
+  kubectl delete namespace app-300h || true

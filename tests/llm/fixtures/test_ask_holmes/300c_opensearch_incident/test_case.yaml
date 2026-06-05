@@ -6,7 +6,9 @@ user_prompt: "The checkout-api service had problems on 2025-05-02 around 14:30 U
 
 expected_output:
   - "Must identify that checkout-api failed due to database connection pool exhaustion"
-  - "Must reference evidence from the logs (e.g. the 'pool exhausted' / 'could not acquire connection' errors around 14:30 UTC)"
+  - "Must reference evidence from the logs (the 'pool exhausted' / 'could not acquire connection' errors)"
+  - "Must identify the incident occurred around 14:30 UTC on 2025-05-02"
+  - "Must mention that health checks (/healthz) failed because they could not acquire a database connection"
 
 tags:
   - logs
