@@ -1,0 +1,17 @@
+# MCP variant of 301h_opensearch_travel_planner: same prompt/expected/data, but HolmesGPT queries via the
+# TestPulsar MCP server (shared tp-stack) instead of the native elasticsearch toolset.
+user_prompt: The travel-planner agent is reporting partial failures. Using the 'spans' index in OpenSearch, find what is going wrong in its sub-agents.
+expected_output:
+- 'Must identify travel-planner status.message ''Partial failure: 1 sub-agent(s) failed'''
+- Must identify the sub-agent failure relates to the Events API (a tool_error / Events API returned an error)
+tags:
+- opensearch
+- traces
+- hard
+- benchmark
+- mcp
+setup_timeout: 400
+before_test: |
+  echo 'Using shared tp-stack: TestPulsar MCP -> OpenSearch Dashboards (spans index, pre-seeded)'
+after_test: |
+  true

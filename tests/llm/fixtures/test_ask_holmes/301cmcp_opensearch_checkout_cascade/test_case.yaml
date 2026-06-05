@@ -1,0 +1,18 @@
+# MCP variant of 301c_opensearch_checkout_cascade: same prompt/expected/data, but HolmesGPT queries via the
+# TestPulsar MCP server (shared tp-stack) instead of the native elasticsearch toolset.
+user_prompt: Checkout is failing for some orders. Using the 'spans' index in OpenSearch, trace the failure to its origin service and explain the chain.
+expected_output:
+- 'Must identify checkout failures: failed to prepare order: failed to get product #"OLJCESPC7Z"'
+- 'Must trace the root cause to product-catalog (the ''Error: Product Catalog Fail Feature Flag Enabled'' feature flag)'
+- Must explain that checkout fails because product-catalog fails upstream
+tags:
+- opensearch
+- traces
+- medium
+- benchmark
+- mcp
+setup_timeout: 400
+before_test: |
+  echo 'Using shared tp-stack: TestPulsar MCP -> OpenSearch Dashboards (spans index, pre-seeded)'
+after_test: |
+  true

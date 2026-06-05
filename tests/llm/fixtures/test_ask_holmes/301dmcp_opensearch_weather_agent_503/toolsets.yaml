@@ -1,0 +1,11 @@
+# HolmesGPT MCP toolset -> TestPulsar (streamable-HTTP). TestPulsar proxies to the
+# shared OpenSearch Dashboards (anonymous) holding the seeded 'spans' index.
+toolsets:
+  kubernetes/logs:
+    enabled: false
+  testpulsar-mcp:
+    type: mcp
+    enabled: true
+    config:
+      url: "http://testpulsar.tp-stack.svc.cluster.local:3001/mcp"
+      mode: streamable-http

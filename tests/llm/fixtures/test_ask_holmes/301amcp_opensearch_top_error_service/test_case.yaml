@@ -1,0 +1,19 @@
+# MCP variant of 301a_opensearch_top_error_service: same prompt/expected/data, but HolmesGPT queries via the
+# TestPulsar MCP server (shared tp-stack) instead of the native elasticsearch toolset.
+user_prompt: Across all services, which one has produced the most error spans? The span data is in the OpenSearch index 'spans'. Give the service name and roughly how many error spans it has.
+expected_output:
+- Must identify 'frontend' as the service with the most error spans
+- Must report frontend has 120 error spans (status.code = 2)
+- Should note frontend-proxy (80) as the next highest
+- Must reach this via an aggregation over the spans index filtering status.code = 2, grouped by serviceName
+tags:
+- opensearch
+- traces
+- easy
+- benchmark
+- mcp
+setup_timeout: 400
+before_test: |
+  echo 'Using shared tp-stack: TestPulsar MCP -> OpenSearch Dashboards (spans index, pre-seeded)'
+after_test: |
+  true

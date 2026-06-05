@@ -1,0 +1,18 @@
+# MCP variant of 301g_opensearch_slowest_service: same prompt/expected/data, but HolmesGPT queries via the
+# TestPulsar MCP server (shared tp-stack) instead of the native elasticsearch toolset.
+user_prompt: Which service has the worst request latency in the 'spans' index in OpenSearch (excluding long-lived streaming spans), and what is the approximate value?
+expected_output:
+- Must identify accounting as the slowest genuine service (~40 seconds, durationInNanos ~ 40000000000)
+- Must EXCLUDE the flagd / fraud-detection ~600s spans as long-lived streaming artifacts, not real request latency
+- Should compute latency from durationInNanos (divide by 1e9 for seconds)
+tags:
+- opensearch
+- traces
+- hard
+- benchmark
+- mcp
+setup_timeout: 400
+before_test: |
+  echo 'Using shared tp-stack: TestPulsar MCP -> OpenSearch Dashboards (spans index, pre-seeded)'
+after_test: |
+  true
