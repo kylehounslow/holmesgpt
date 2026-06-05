@@ -1,6 +1,6 @@
 # MCP variant of 301f_opensearch_accounting_db: same prompt/expected/data, but HolmesGPT queries via the
 # TestPulsar MCP server (shared tp-stack) instead of the native elasticsearch toolset.
-user_prompt: The accounting service is throwing errors. Investigate the root cause via the 'spans' index in OpenSearch, including any database-level detail.
+user_prompt: The accounting service is throwing errors. Investigate the root cause via the 'otel-v1-apm-span-bench' index in OpenSearch, including any database-level detail.
 expected_output:
 - Must identify accounting errors with status.message 23505
 - Must explain 23505 is a Postgres unique_violation (duplicate key) error

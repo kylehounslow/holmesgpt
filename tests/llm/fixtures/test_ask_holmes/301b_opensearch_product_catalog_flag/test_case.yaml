@@ -1,5 +1,5 @@
-# Ported from our-harness cases-rca-benchmark-v1.json. Trace RCA over a static deterministic OTel-span dataset (shared/otel_spans.ndjson) seeded into a shared 'spans' index. Real signatures harvested from the OpenSearch playground (our-harness/opensearch-port/GROUND_TRUTH.md); playground not in runtime path.
-user_prompt: The product-catalog service is erroring. Investigate the 'spans' index in OpenSearch and identify the root cause.
+# Ported from our-harness cases-rca-benchmark-v1.json. Trace RCA over a static deterministic OTel-span dataset (shared/otel_spans.ndjson) seeded into a shared 'otel-v1-apm-span-bench' index. Real signatures harvested from the OpenSearch playground (our-harness/opensearch-port/GROUND_TRUTH.md); playground not in runtime path.
+user_prompt: The product-catalog service is erroring. Investigate the 'otel-v1-apm-span-bench' index in OpenSearch and identify the root cause.
 expected_output:
 - 'Must identify the root cause as a feature flag: status.message ''Error: Product Catalog Fail Feature Flag Enabled'''
 - Must reference the product-catalog GetProduct operation
@@ -18,8 +18,8 @@ port_forwards:
 before_test: |
   source ../../shared/opensearch_test_utils.sh
   os_setup "app-301b"
-  os_load_spans "spans"
-  os_assert_count "spans" '{"query":{"term":{"status.code":2}}}' 485
+  os_load_spans "otel-v1-apm-span-bench"
+  os_assert_count "otel-v1-apm-span-bench" '{"query":{"term":{"status.code":2}}}' 485
   echo "Loaded shared OTel span dataset into spans (485 error spans)"
 after_test: |
   kubectl delete namespace app-301b || true

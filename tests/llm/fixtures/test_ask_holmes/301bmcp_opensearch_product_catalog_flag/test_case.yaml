@@ -1,6 +1,6 @@
 # MCP variant of 301b_opensearch_product_catalog_flag: same prompt/expected/data, but HolmesGPT queries via the
 # TestPulsar MCP server (shared tp-stack) instead of the native elasticsearch toolset.
-user_prompt: The product-catalog service is erroring. Investigate the 'spans' index in OpenSearch and identify the root cause.
+user_prompt: The product-catalog service is erroring. Investigate the 'otel-v1-apm-span-bench' index in OpenSearch and identify the root cause.
 expected_output:
 - 'Must identify the root cause as a feature flag: status.message ''Error: Product Catalog Fail Feature Flag Enabled'''
 - Must reference the product-catalog GetProduct operation

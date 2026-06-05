@@ -1,6 +1,6 @@
 # MCP variant of 301e_opensearch_deadline_exceeded: same prompt/expected/data, but HolmesGPT queries via the
 # TestPulsar MCP server (shared tp-stack) instead of the native elasticsearch toolset.
-user_prompt: Some services are reporting gRPC DEADLINE_EXCEEDED errors. Using the 'spans' index in OpenSearch, identify which services are affected and what this indicates.
+user_prompt: Some services are reporting gRPC DEADLINE_EXCEEDED errors. Using the 'otel-v1-apm-span-bench' index in OpenSearch, identify which services are affected and what this indicates.
 expected_output:
 - Must identify both product-reviews and recommendation as affected (status.message contains StatusCode.DEADLINE_EXCEEDED)
 - Must indicate this means gRPC calls are timing out (a latency/timeout problem, not a logic error)

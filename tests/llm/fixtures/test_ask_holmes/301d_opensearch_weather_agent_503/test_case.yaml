@@ -1,5 +1,5 @@
-# Ported from our-harness cases-rca-benchmark-v1.json. Trace RCA over a static deterministic OTel-span dataset (shared/otel_spans.ndjson) seeded into a shared 'spans' index. Real signatures harvested from the OpenSearch playground (our-harness/opensearch-port/GROUND_TRUTH.md); playground not in runtime path.
-user_prompt: The weather-agent is returning errors. Using the 'spans' index in OpenSearch, find what is failing and why.
+# Ported from our-harness cases-rca-benchmark-v1.json. Trace RCA over a static deterministic OTel-span dataset (shared/otel_spans.ndjson) seeded into a shared 'otel-v1-apm-span-bench' index. Real signatures harvested from the OpenSearch playground (our-harness/opensearch-port/GROUND_TRUTH.md); playground not in runtime path.
+user_prompt: The weather-agent is returning errors. Using the 'otel-v1-apm-span-bench' index in OpenSearch, find what is failing and why.
 expected_output:
 - 'Must identify the weather-agent error: Tool ''get_current_weather'' failed: External API returned 503'
 - Must explain it is an external weather API returning 503 (an upstream/external dependency failure)
@@ -17,8 +17,8 @@ port_forwards:
 before_test: |
   source ../../shared/opensearch_test_utils.sh
   os_setup "app-301d"
-  os_load_spans "spans"
-  os_assert_count "spans" '{"query":{"term":{"status.code":2}}}' 485
+  os_load_spans "otel-v1-apm-span-bench"
+  os_assert_count "otel-v1-apm-span-bench" '{"query":{"term":{"status.code":2}}}' 485
   echo "Loaded shared OTel span dataset into spans (485 error spans)"
 after_test: |
   kubectl delete namespace app-301d || true

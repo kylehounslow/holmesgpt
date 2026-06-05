@@ -1,6 +1,6 @@
 # MCP variant of 301d_opensearch_weather_agent_503: same prompt/expected/data, but HolmesGPT queries via the
 # TestPulsar MCP server (shared tp-stack) instead of the native elasticsearch toolset.
-user_prompt: The weather-agent is returning errors. Using the 'spans' index in OpenSearch, find what is failing and why.
+user_prompt: The weather-agent is returning errors. Using the 'otel-v1-apm-span-bench' index in OpenSearch, find what is failing and why.
 expected_output:
 - 'Must identify the weather-agent error: Tool ''get_current_weather'' failed: External API returned 503'
 - Must explain it is an external weather API returning 503 (an upstream/external dependency failure)
