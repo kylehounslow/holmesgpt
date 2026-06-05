@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from abc import ABC
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 
@@ -293,6 +294,12 @@ class ElasticsearchBaseToolset(Toolset):
             **kwargs,
         )
         self._instances: Dict[str, ElasticsearchInstance] = {}
+        # Toolset-level steering: cue the agent to query the indices for a workload's
+        # logs/traces even when the Kubernetes object is gone (deleted/replaced pod or
+        # deployment), and to discover indices/fields rather than guess-and-give-up.
+        self._load_llm_instructions_from_file(
+            os.path.dirname(__file__), "elasticsearch_instructions.jinja2"
+        )
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         """Check if the Elasticsearch configuration is valid and the cluster is reachable."""

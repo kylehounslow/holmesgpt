@@ -1,0 +1,27 @@
+# Elasticsearch / OpenSearch investigation guidance
+
+This toolset queries an Elasticsearch or OpenSearch cluster that stores logs, traces,
+or other observability data. Treat those indices as a primary source of evidence, not
+a last resort.
+
+## When a Kubernetes object is missing, still query the indices
+
+A user may ask about a workload by its Kubernetes name (a deployment, pod, service,
+statefulset, etc.) whose logs or traces are shipped to this cluster. The Kubernetes
+object may no longer exist: the pod was deleted or replaced, the deployment was torn
+down, or the workload only ever ran elsewhere. A `kubectl get`/`describe` returning
+nothing does NOT mean there is no evidence.
+
+If a Kubernetes lookup for the named workload comes back empty, do NOT conclude "not
+found" and stop. Query these indices for the same name before answering. The indexed
+logs and traces frequently outlive the Kubernetes object and are often the only
+surviving record of what happened. Search by the workload name across the relevant
+fields (for example `service`, `serviceName`, `kubernetes.pod_name`, `pod`, or a
+`message` substring), widening the field set if the first attempt returns nothing.
+
+## Discover before assuming
+
+Index names and field names vary between clusters. When you don't already know where a
+workload's data lives, list indices and inspect mappings first, then query. Don't guess
+a single index name, get zero hits, and give up. Confirm the data isn't there by
+checking the indices that plausibly hold it.
