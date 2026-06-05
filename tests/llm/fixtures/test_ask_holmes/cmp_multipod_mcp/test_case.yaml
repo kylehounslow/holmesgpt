@@ -1,0 +1,39 @@
+# MCP arm of the multipod comparison. Same dataset + same prompt shape as
+# cmp_multipod_opensearch (the deployment-framed "any issues in recent logs for the
+# traffic-manager deployment" question), but HolmesGPT reaches the logs via the
+# TestPulsar MCP server (shared tp-stack) instead of the native elasticsearch toolset.
+#
+# Point of the case: cmp_multipod_opensearch FAILED because, when the deployment-framed
+# prompt produced no k8s object, the elasticsearch-toolset agent gave up without ever
+# querying its log store. This variant tests whether TestPulsar's tools steer the agent
+# to query the log index anyway. The trap is preserved on purpose — the prompt frames
+# the target as a "deployment" and does NOT name the index, exactly like the native arm.
+#
+# Data lives in the shared tp-stack index logs-otel-v1-bench (matches the Dashboards
+# index pattern logs-otel-v1* that TestPulsar discovers), seeded + re-stamped in
+# before_test from the SAME committed multipod dataset the native/Loki arms use.
+user_prompt: "Can you see any issues in recent logs for the traffic-manager deployment? Its logs are in OpenSearch."
+
+expected_output:
+  - "Must identify that one traffic-manager pod hit a memory problem (OutOfMemory / heap exhausted)"
+  - "Must reference the error log evidence (memory usage high / OutOfMemory) rather than reporting all pods healthy"
+
+tags:
+  - logs
+  - kubernetes
+  - opensearch
+  - comparison
+  - mcp
+  - medium
+
+setup_timeout: 400
+
+before_test: |
+  source ../../shared/lvo/seed_tpstack.sh
+  lvo_seed_tpstack "multipod" "logs-otel-v1-bench"
+  echo "✅ Seeded multipod into shared tp-stack (logs-otel-v1-bench) for TestPulsar MCP"
+
+after_test: |
+  # Leave tp-stack data in place (shared, persistent). Drop just this index.
+  kubectl exec -n tp-stack opensearch-cluster-master-0 -c opensearch -- sh -c \
+    'curl -sk -u admin:"$OPENSEARCH_INITIAL_ADMIN_PASSWORD" -X DELETE "https://localhost:9200/logs-otel-v1-bench"' >/dev/null 2>&1 || true
