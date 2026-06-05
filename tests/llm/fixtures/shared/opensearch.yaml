@@ -1,0 +1,80 @@
+# Single-node OpenSearch for eval-case log backends. Dev mode: security plugin
+# disabled (plain HTTP, no auth), single node, no persistence. Mirrors the
+# shared/loki.yaml pattern: applied into a per-case namespace, fronted by a
+# Service, seeded over the REST _bulk API in before_test.
+#
+# Spike only — lives under holmes-repro/opensearch-spike/ until proven, then
+# moves to the fork's tests/llm/fixtures/shared/opensearch.yaml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opensearch
+  labels:
+    app: opensearch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opensearch
+  template:
+    metadata:
+      labels:
+        app: opensearch
+    spec:
+      # OpenSearch refuses to start if vm.max_map_count is too low. kind nodes
+      # usually inherit the host's default; this init container makes it explicit
+      # and self-contained rather than relying on a host sysctl.
+      initContainers:
+      - name: sysctl
+        image: busybox:1.36
+        command: ["sh", "-c", "sysctl -w vm.max_map_count=262144"]
+        securityContext:
+          privileged: true
+      containers:
+      - name: opensearch
+        image: opensearchproject/opensearch:3.5.0
+        ports:
+        - containerPort: 9200
+          name: http
+        - containerPort: 9600
+          name: perf
+        env:
+        - name: discovery.type
+          value: single-node
+        - name: DISABLE_SECURITY_PLUGIN
+          value: "true"
+        - name: DISABLE_INSTALL_DEMO_CONFIG
+          value: "true"
+        - name: OPENSEARCH_JAVA_OPTS
+          value: "-Xms512m -Xmx512m"
+        # bootstrap.memory_lock needs ulimits we don't set in kind; leave it off.
+        - name: bootstrap.memory_lock
+          value: "false"
+        readinessProbe:
+          httpGet:
+            path: /_cluster/health?wait_for_status=yellow&timeout=5s
+            port: 9200
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          timeoutSeconds: 6
+          failureThreshold: 30
+        resources:
+          requests:
+            cpu: 250m
+            memory: 1Gi
+          limits:
+            memory: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch
+  labels:
+    app: opensearch
+spec:
+  selector:
+    app: opensearch
+  ports:
+  - name: http
+    port: 9200
+    targetPort: 9200

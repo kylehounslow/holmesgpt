@@ -1,0 +1,65 @@
+# OpenSearch aggregation: which service produced the most ERROR logs. Anti-
+# hallucination: the winning service + count are determined by the seeded data, not
+# guessable. Tests that the agent runs an aggregation (or counts) rather than eyeballing.
+user_prompt: "In the OpenSearch index 'app-300b-logs', which service has the most ERROR-level log entries, and how many does it have?"
+
+expected_output:
+  - "Must identify that the 'payments-worker' service has the most ERROR logs"
+  - "Must state that payments-worker has 7 ERROR entries"
+
+tags:
+  - logs
+  - opensearch
+  - medium
+  - benchmark
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: app-300b
+    service: opensearch
+    local_port: 9302
+    remote_port: 9200
+
+before_test: |
+  source ../../shared/opensearch_test_utils.sh
+  os_setup "app-300b" 9302
+  os_wait_api
+
+  os_create_index "app-300b-logs" '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"level":{"type":"keyword"},"service":{"type":"keyword"},"message":{"type":"text"}}}}'
+
+  # Seed deterministic counts: payments-worker=7 ERROR, api-gateway=3 ERROR,
+  # notifications=1 ERROR, plus assorted INFO. payments-worker is the unambiguous max.
+  BULK=/tmp/os_300b_$$.ndjson
+  : > "$BULK"
+  emit() { # level service n
+    for i in $(seq 1 "$3"); do
+      printf '{"index":{}}\n{"timestamp":"2025-04-01T12:%02d:00Z","level":"%s","service":"%s","message":"%s event %d"}\n' \
+        "$i" "$1" "$2" "$2" "$i" >> "$BULK"
+    done
+  }
+  emit ERROR payments-worker 7
+  emit ERROR api-gateway 3
+  emit ERROR notifications 1
+  emit INFO payments-worker 5
+  emit INFO api-gateway 9
+  os_bulk "app-300b-logs" "$BULK"
+  rm -f "$BULK"
+
+  os_assert_count "app-300b-logs" '{"query":{"bool":{"must":[{"term":{"level":"ERROR"}},{"term":{"service":"payments-worker"}}]}}}' 7
+  echo "✅ Seeded: payments-worker has 7 ERRORs (the max)"
+
+after_test: |
+  kubectl delete namespace app-300b || true
+
+toolsets:
+  kubernetes/logs:
+    enabled: false
+  elasticsearch/data:
+    enabled: true
+    config:
+      api_url: http://localhost:9302
+  elasticsearch/cluster:
+    enabled: true
+    config:
+      api_url: http://localhost:9302

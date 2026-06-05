@@ -1,0 +1,66 @@
+# OpenSearch log search with injected error-code needles. Anti-hallucination: the
+# agent cannot know the ERR-XXXX codes without actually querying the index.
+user_prompt: "Search the 'app-300a-logs' index in OpenSearch for ERROR level log messages. What error codes (format ERR-XXXX) appear in the logs?"
+
+expected_output:
+  - "Must identify that there are ERROR level logs in the index"
+  - "Must find and list the 3 specific error codes that were injected: ERR-5521, ERR-8830, and ERR-3074"
+  - "The response should mention the error messages associated with these codes"
+
+tags:
+  - logs
+  - opensearch
+  - medium
+  - benchmark
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: app-300a
+    service: opensearch
+    local_port: 9301
+    remote_port: 9200
+
+before_test: |
+  source ../../shared/opensearch_test_utils.sh
+  os_setup "app-300a" 9301
+  os_wait_api
+
+  os_create_index "app-300a-logs" '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"level":{"type":"keyword"},"service":{"type":"keyword"},"error_code":{"type":"keyword"},"message":{"type":"text"}}}}'
+
+  BULK=/tmp/os_300a_$$.ndjson
+  cat > "$BULK" <<'NDJSON'
+  {"index":{}}
+  {"timestamp":"2025-03-10T09:00:00Z","level":"INFO","service":"checkout-api","message":"Service started"}
+  {"index":{}}
+  {"timestamp":"2025-03-10T09:05:00Z","level":"ERROR","service":"checkout-api","error_code":"ERR-5521","message":"Payment gateway timeout - ERR-5521: upstream did not respond within 30s"}
+  {"index":{}}
+  {"timestamp":"2025-03-10T09:06:00Z","level":"WARN","service":"checkout-api","message":"Retrying payment authorization"}
+  {"index":{}}
+  {"timestamp":"2025-03-10T09:10:00Z","level":"ERROR","service":"order-service","error_code":"ERR-8830","message":"Inventory reservation failed - ERR-8830: SKU lock contention"}
+  {"index":{}}
+  {"timestamp":"2025-03-10T09:12:00Z","level":"INFO","service":"order-service","message":"Order batch processed"}
+  {"index":{}}
+  {"timestamp":"2025-03-10T09:18:00Z","level":"ERROR","service":"shipping-api","error_code":"ERR-3074","message":"Carrier API rejected request - ERR-3074: invalid postal code format"}
+  NDJSON
+  sed -i 's/^  //' "$BULK"
+  os_bulk "app-300a-logs" "$BULK"
+  rm -f "$BULK"
+
+  os_assert_count "app-300a-logs" '{"query":{"term":{"level":"ERROR"}}}' 3
+  echo "✅ Test index seeded with 3 ERROR needles"
+
+after_test: |
+  kubectl delete namespace app-300a || true
+
+toolsets:
+  kubernetes/logs:
+    enabled: false
+  elasticsearch/data:
+    enabled: true
+    config:
+      api_url: http://localhost:9301
+  elasticsearch/cluster:
+    enabled: true
+    config:
+      api_url: http://localhost:9301
