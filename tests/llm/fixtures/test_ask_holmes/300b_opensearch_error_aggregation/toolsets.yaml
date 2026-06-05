@@ -1,0 +1,13 @@
+# OpenSearch via the elasticsearch toolset, pointed at the in-cluster backend over
+# the harness port-forward (localhost:9302). Security disabled, so no auth.
+toolsets:
+  kubernetes/logs:
+    enabled: false
+  elasticsearch/data:
+    enabled: true
+    config:
+      api_url: "http://localhost:9302"
+  elasticsearch/cluster:
+    enabled: true
+    config:
+      api_url: "http://localhost:9302"

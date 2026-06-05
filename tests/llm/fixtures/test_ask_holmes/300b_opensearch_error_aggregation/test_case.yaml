@@ -51,14 +51,3 @@ before_test: |
 after_test: |
   kubectl delete namespace app-300b || true
 
-toolsets:
-  kubernetes/logs:
-    enabled: false
-  elasticsearch/data:
-    enabled: true
-    config:
-      api_url: http://localhost:9302
-  elasticsearch/cluster:
-    enabled: true
-    config:
-      api_url: http://localhost:9302
