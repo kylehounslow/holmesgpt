@@ -1,0 +1,16 @@
+# OpenSearch arm of the multipod comparison. Same dataset as cmp_multipod_loki,
+# queried through the elasticsearch toolset (DSL/PPL) against the in-cluster backend
+# over the harness port-forward. Security disabled, so no auth.
+toolsets:
+  kubernetes/logs:
+    enabled: false
+  kubernetes/core:
+    enabled: true
+  elasticsearch/data:
+    enabled: true
+    config:
+      api_url: "http://localhost:9322"
+  elasticsearch/cluster:
+    enabled: true
+    config:
+      api_url: "http://localhost:9322"

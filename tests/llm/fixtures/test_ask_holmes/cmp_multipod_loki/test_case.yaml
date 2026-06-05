@@ -1,0 +1,34 @@
+# Loki arm of the multipod comparison ({loki vs opensearch}). The shared dataset
+# shared/lvo/datasets/multipod.json is seeded into Loki; the matched case
+# cmp_multipod_opensearch seeds the SAME records into OpenSearch. Identical prompt +
+# expected_output — only the backend + toolset differ. Timestamps re-stamped to ~now at
+# load so time-windowed queries hit data regardless of when the benchmark runs.
+user_prompt: "Can you see any issues in recent logs for the traffic-manager deployment in namespace cmp-multipod-loki?"
+
+expected_output:
+  - "Must identify that one traffic-manager pod hit a memory problem (OutOfMemory / heap exhausted)"
+  - "Must reference the error log evidence (memory usage high / OutOfMemory) rather than reporting all pods healthy"
+
+tags:
+  - logs
+  - kubernetes
+  - loki
+  - comparison
+  - medium
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: cmp-multipod-loki
+    service: loki
+    local_port: 3122
+    remote_port: 3100
+
+before_test: |
+  source ../../shared/lvo/lvo_test_utils.sh
+  lvo_deploy_loki "cmp-multipod-loki"
+  lvo_seed_loki "cmp-multipod-loki" "multipod"
+  echo "✅ Seeded multipod into Loki (cmp-multipod-loki)"
+
+after_test: |
+  kubectl delete namespace cmp-multipod-loki --wait=false || true

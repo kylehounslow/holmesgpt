@@ -1,0 +1,16 @@
+# Loki arm of the incident comparison. Same dataset as cmp_incident_opensearch,
+# queried through the grafana/loki toolset (LogQL). kubernetes/logs disabled so the
+# agent must use Loki (and, for pod-deleted, cannot fall back to kubectl logs).
+toolsets:
+  kubernetes/logs:
+    enabled: false
+  kubernetes/core:
+    enabled: true
+  grafana/loki:
+    enabled: true
+    config:
+      api_url: http://localhost:3120
+      api_key: ""
+      labels:
+        pod: pod
+        namespace: namespace

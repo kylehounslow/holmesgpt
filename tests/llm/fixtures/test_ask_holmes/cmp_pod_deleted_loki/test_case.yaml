@@ -1,0 +1,42 @@
+# Loki arm of the pod_deleted comparison ({loki vs opensearch}). The shared dataset
+# shared/lvo/datasets/pod_deleted.json is seeded into Loki; the matched case
+# cmp_pod_deleted_opensearch seeds the SAME records into OpenSearch. Identical prompt +
+# expected_output — only the backend + toolset differ. Timestamps re-stamped to ~now at
+# load so time-windowed queries hit data regardless of when the benchmark runs.
+user_prompt: "The payment-api pod in namespace cmp-pod-deleted-loki had issues recently, but the pod no longer exists. Investigate what happened and identify the root cause."
+
+expected_output:
+  - "Must identify that payment-api failed due to database connection pool exhaustion"
+  - "Must reference evidence from the indexed/stored logs (the pool-exhausted / could-not-acquire-connection errors)"
+  - "Must rely on the logging backend, since the pod is gone and kubectl logs is not a usable source"
+
+tags:
+  - logs
+  - kubernetes
+  - loki
+  - comparison
+  - medium
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: cmp-pod-deleted-loki
+    service: loki
+    local_port: 3121
+    remote_port: 3100
+
+before_test: |
+  source ../../shared/lvo/lvo_test_utils.sh
+  lvo_deploy_loki "cmp-pod-deleted-loki"
+  # Pod-deleted scenario: stand up a payment-api-0 pod, then delete it, so the
+  # agent cannot kubectl-logs it and must rely on the logging backend.
+  kubectl run payment-api-0 --image=busybox:1.36 -n cmp-pod-deleted-loki --restart=Never \
+    --command -- sh -c 'echo started; sleep 3600' 2>/dev/null || true
+  kubectl wait --for=condition=ready pod/payment-api-0 -n cmp-pod-deleted-loki --timeout=60s 2>/dev/null || true
+  kubectl delete pod payment-api-0 -n cmp-pod-deleted-loki --wait=true --timeout=60s 2>/dev/null || true
+
+  lvo_seed_loki "cmp-pod-deleted-loki" "pod_deleted"
+  echo "✅ Seeded pod_deleted into Loki (cmp-pod-deleted-loki)"
+
+after_test: |
+  kubectl delete namespace cmp-pod-deleted-loki --wait=false || true

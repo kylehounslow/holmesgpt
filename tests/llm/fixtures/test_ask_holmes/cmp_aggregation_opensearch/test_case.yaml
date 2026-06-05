@@ -1,0 +1,33 @@
+# OpenSearch arm of the aggregation comparison ({loki vs opensearch}). The shared dataset
+# shared/lvo/datasets/aggregation.json is seeded into OpenSearch; the matched case
+# cmp_aggregation_loki seeds the SAME records into Loki. Identical prompt + expected_output
+# — only the backend + toolset differ. Timestamps re-stamped to ~now at load.
+user_prompt: "In namespace cmp-aggregation-opensearch, which service produced the most errors recently, and what are the distinct payment gateway error codes (of the form ERR-XXXX) in those errors?"
+
+expected_output:
+  - "Must identify payments-worker as the service with the most errors"
+  - "Must list the distinct payment-gateway error codes: ERR-5521, ERR-8830, ERR-3074"
+
+tags:
+  - logs
+  - kubernetes
+  - opensearch
+  - comparison
+  - hard
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: cmp-aggregation-opensearch
+    service: opensearch
+    local_port: 9323
+    remote_port: 9200
+
+before_test: |
+  source ../../shared/lvo/lvo_test_utils.sh
+  lvo_deploy_opensearch "cmp-aggregation-opensearch"
+  lvo_seed_opensearch "cmp-aggregation-opensearch" "aggregation" "cmp-aggregation-logs"
+  echo "✅ Seeded aggregation into OpenSearch (cmp-aggregation-opensearch/cmp-aggregation-logs)"
+
+after_test: |
+  kubectl delete namespace cmp-aggregation-opensearch --wait=false || true

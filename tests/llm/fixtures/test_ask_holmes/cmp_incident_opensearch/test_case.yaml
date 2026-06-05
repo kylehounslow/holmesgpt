@@ -1,0 +1,34 @@
+# OpenSearch arm of the incident comparison ({loki vs opensearch}). The shared dataset
+# shared/lvo/datasets/incident.json is seeded into OpenSearch; the matched case
+# cmp_incident_loki seeds the SAME records into Loki. Identical prompt + expected_output
+# — only the backend + toolset differ. Timestamps re-stamped to ~now at load.
+user_prompt: "The payment-api service in namespace cmp-incident-opensearch had problems recently. Investigate what happened and identify the root cause."
+
+expected_output:
+  - "Must identify that payment-api failed due to database connection pool exhaustion"
+  - "Must reference evidence from the logs (the 'pool exhausted' / 'could not acquire connection' errors)"
+  - "Must mention that health checks (/healthz) failed because they could not acquire a database connection"
+
+tags:
+  - logs
+  - kubernetes
+  - opensearch
+  - comparison
+  - medium
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: cmp-incident-opensearch
+    service: opensearch
+    local_port: 9320
+    remote_port: 9200
+
+before_test: |
+  source ../../shared/lvo/lvo_test_utils.sh
+  lvo_deploy_opensearch "cmp-incident-opensearch"
+  lvo_seed_opensearch "cmp-incident-opensearch" "incident" "cmp-incident-logs"
+  echo "✅ Seeded incident into OpenSearch (cmp-incident-opensearch/cmp-incident-logs)"
+
+after_test: |
+  kubectl delete namespace cmp-incident-opensearch --wait=false || true

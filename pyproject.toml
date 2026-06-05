@@ -186,6 +186,7 @@ markers = [
     # - Fast execution to avoid slowing CI/CD pipelines
     "regression: Critical regression tests that must always pass",
     "benchmark: Challenging tests for evaluating and benchmarking model capabilities",
+    "comparison: Matched-pair cases comparing backends/toolsets on identical data (e.g. Loki vs OpenSearch)",
     "db-connectors: Tests for the database/SQL connector toolset",
     "mcp: Tests for MCP (Model Context Protocol) server integration",
     "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",

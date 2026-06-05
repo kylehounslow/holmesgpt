@@ -1,0 +1,44 @@
+[
+  {
+    "ts": "2025-08-02T13:30:00Z",
+    "level": "INFO",
+    "service": "payment-api",
+    "pod": "payment-api-0",
+    "message": "Healthy. Processing payments normally."
+  },
+  {
+    "ts": "2025-08-02T13:43:00Z",
+    "level": "WARN",
+    "service": "payment-api",
+    "pod": "payment-api-0",
+    "message": "Database connection pool usage at 95% (19/20)"
+  },
+  {
+    "ts": "2025-08-02T13:45:00Z",
+    "level": "ERROR",
+    "service": "payment-api",
+    "pod": "payment-api-0",
+    "message": "Failed to acquire database connection - pool exhausted (max=20, active=20)"
+  },
+  {
+    "ts": "2025-08-02T13:45:10Z",
+    "level": "ERROR",
+    "service": "payment-api",
+    "pod": "payment-api-0",
+    "message": "Health check /healthz failed: could not acquire connection from pool within 5000ms"
+  },
+  {
+    "ts": "2025-08-02T13:46:00Z",
+    "level": "ERROR",
+    "service": "payment-api",
+    "pod": "payment-api-0",
+    "message": "ConnectionPoolExhausted: rejecting request, returning 503"
+  },
+  {
+    "ts": "2025-08-02T14:50:00Z",
+    "level": "INFO",
+    "service": "payment-api",
+    "pod": "payment-api-0",
+    "message": "Connection pool recovered, error rate back to baseline"
+  }
+]

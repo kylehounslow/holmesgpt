@@ -1,0 +1,149 @@
+[
+  {
+    "ts": "2025-08-02T12:00:00Z",
+    "level": "ERROR",
+    "service": "payments-worker",
+    "pod": "payments-worker-0",
+    "message": "Payment gateway error - ERR-5521: upstream rejected"
+  },
+  {
+    "ts": "2025-08-02T12:01:00Z",
+    "level": "ERROR",
+    "service": "payments-worker",
+    "pod": "payments-worker-0",
+    "message": "Payment gateway error - ERR-8830: upstream rejected"
+  },
+  {
+    "ts": "2025-08-02T12:02:00Z",
+    "level": "ERROR",
+    "service": "payments-worker",
+    "pod": "payments-worker-0",
+    "message": "Payment gateway error - ERR-3074: upstream rejected"
+  },
+  {
+    "ts": "2025-08-02T12:03:00Z",
+    "level": "ERROR",
+    "service": "payments-worker",
+    "pod": "payments-worker-0",
+    "message": "payments-worker failure 3"
+  },
+  {
+    "ts": "2025-08-02T12:04:00Z",
+    "level": "ERROR",
+    "service": "payments-worker",
+    "pod": "payments-worker-0",
+    "message": "payments-worker failure 4"
+  },
+  {
+    "ts": "2025-08-02T12:05:00Z",
+    "level": "ERROR",
+    "service": "payments-worker",
+    "pod": "payments-worker-0",
+    "message": "payments-worker failure 5"
+  },
+  {
+    "ts": "2025-08-02T12:06:00Z",
+    "level": "ERROR",
+    "service": "payments-worker",
+    "pod": "payments-worker-0",
+    "message": "payments-worker failure 6"
+  },
+  {
+    "ts": "2025-08-02T12:07:00Z",
+    "level": "ERROR",
+    "service": "api-gateway",
+    "pod": "api-gateway-0",
+    "message": "api-gateway failure 0"
+  },
+  {
+    "ts": "2025-08-02T12:08:00Z",
+    "level": "ERROR",
+    "service": "api-gateway",
+    "pod": "api-gateway-0",
+    "message": "api-gateway failure 1"
+  },
+  {
+    "ts": "2025-08-02T12:09:00Z",
+    "level": "ERROR",
+    "service": "api-gateway",
+    "pod": "api-gateway-0",
+    "message": "api-gateway failure 2"
+  },
+  {
+    "ts": "2025-08-02T12:10:00Z",
+    "level": "ERROR",
+    "service": "notifications",
+    "pod": "notifications-0",
+    "message": "notifications failure 0"
+  },
+  {
+    "ts": "2025-08-02T11:11:00Z",
+    "level": "INFO",
+    "service": "payments-worker",
+    "pod": "payments-worker-0",
+    "message": "payments-worker ok 0"
+  },
+  {
+    "ts": "2025-08-02T11:12:00Z",
+    "level": "INFO",
+    "service": "payments-worker",
+    "pod": "payments-worker-0",
+    "message": "payments-worker ok 1"
+  },
+  {
+    "ts": "2025-08-02T11:13:00Z",
+    "level": "INFO",
+    "service": "payments-worker",
+    "pod": "payments-worker-0",
+    "message": "payments-worker ok 2"
+  },
+  {
+    "ts": "2025-08-02T11:14:00Z",
+    "level": "INFO",
+    "service": "payments-worker",
+    "pod": "payments-worker-0",
+    "message": "payments-worker ok 3"
+  },
+  {
+    "ts": "2025-08-02T11:15:00Z",
+    "level": "INFO",
+    "service": "payments-worker",
+    "pod": "payments-worker-0",
+    "message": "payments-worker ok 4"
+  },
+  {
+    "ts": "2025-08-02T11:16:00Z",
+    "level": "INFO",
+    "service": "api-gateway",
+    "pod": "api-gateway-0",
+    "message": "api-gateway ok 0"
+  },
+  {
+    "ts": "2025-08-02T11:17:00Z",
+    "level": "INFO",
+    "service": "api-gateway",
+    "pod": "api-gateway-0",
+    "message": "api-gateway ok 1"
+  },
+  {
+    "ts": "2025-08-02T11:18:00Z",
+    "level": "INFO",
+    "service": "api-gateway",
+    "pod": "api-gateway-0",
+    "message": "api-gateway ok 2"
+  },
+  {
+    "ts": "2025-08-02T11:19:00Z",
+    "level": "INFO",
+    "service": "api-gateway",
+    "pod": "api-gateway-0",
+    "message": "api-gateway ok 3"
+  },
+  {
+    "ts": "2025-08-02T11:20:00Z",
+    "level": "INFO",
+    "service": "api-gateway",
+    "pod": "api-gateway-0",
+    "message": "api-gateway ok 4"
+  }
+]
