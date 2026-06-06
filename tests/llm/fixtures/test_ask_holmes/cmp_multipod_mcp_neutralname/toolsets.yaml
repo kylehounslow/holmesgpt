@@ -1,0 +1,16 @@
+# MCP arm: HolmesGPT queries logs via the TestPulsar MCP server (streamable-HTTP),
+# which proxies to the shared tp-stack OpenSearch Dashboards. kubernetes/core stays
+# enabled so the agent CAN do the k8s deployment lookup (and find nothing) — preserving
+# the same dead-end that tripped the native elasticsearch arm. kubernetes/logs disabled
+# so the only log path is TestPulsar.
+toolsets:
+  kubernetes/logs:
+    enabled: false
+  kubernetes/core:
+    enabled: true
+  testpulsar-mcp:
+    type: mcp
+    enabled: true
+    config:
+      url: "http://testpulsar.tp-stack.svc.cluster.local:3001/mcp"
+      mode: streamable-http

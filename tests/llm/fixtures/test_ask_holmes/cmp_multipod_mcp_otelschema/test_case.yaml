@@ -1,0 +1,31 @@
+# Schema-bias experiment, ARM A. Same multipod prompt + TestPulsar MCP as cmp_multipod_mcp,
+# but the data is seeded in the REAL OTel-logs schema (body / severityText / @timestamp /
+# serviceName) into logs-otel-v1-bench. This is the schema TestPulsar's SOP lore + tool
+# defaults assume. If the schema-guess churn seen in cmp_multipod_mcp (where the data was
+# FLAT but the index was named logs-otel-v1*) disappears here, then TestPulsar's defaults
+# were CORRECT and the earlier churn was our synthetic schema lying about its index name —
+# not a TestPulsar over-default. The expected_output references the OTel field meanings.
+user_prompt: "Can you see any issues in recent logs for the traffic-manager deployment? Its logs are in OpenSearch."
+
+expected_output:
+  - "Must identify that one traffic-manager pod hit a memory problem (OutOfMemory / heap exhausted)"
+  - "Must reference the error log evidence (memory usage high / OutOfMemory) rather than reporting all pods healthy"
+
+tags:
+  - logs
+  - kubernetes
+  - opensearch
+  - comparison
+  - mcp
+  - medium
+
+setup_timeout: 400
+
+before_test: |
+  source ../../shared/lvo/seed_tpstack_schema.sh
+  lvo_seed_schema "multipod" "logs-otel-v1-bench" "otel" 0
+  echo "✅ Seeded multipod in OTel-logs schema (body/severityText/@timestamp) into logs-otel-v1-bench"
+
+after_test: |
+  kubectl exec -n tp-stack opensearch-cluster-master-0 -c opensearch -- sh -c \
+    'curl -sk -u admin:"$OPENSEARCH_INITIAL_ADMIN_PASSWORD" -X DELETE "https://localhost:9200/logs-otel-v1-bench"' >/dev/null 2>&1 || true

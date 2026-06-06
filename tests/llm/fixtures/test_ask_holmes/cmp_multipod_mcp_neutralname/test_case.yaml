@@ -1,0 +1,31 @@
+# Schema-bias experiment, ARM B. Same multipod prompt + TestPulsar MCP as cmp_multipod_mcp,
+# but the FLAT data (message / level / timestamp / service) is seeded into a NEUTRALLY
+# named index, applogs-bench, whose Dashboards index pattern is created at setup so
+# TestPulsar still discovers it. Nothing in the index name points at the OTel-logs schema.
+# If the agent STILL guesses OTel fields (body / severityText) before calling
+# describe_fields, that bias comes from TestPulsar's SOP lore / tool defaults, independent
+# of the index name — the real evidence for relaxing the hardcoded schema defaults.
+user_prompt: "Can you see any issues in recent logs for the traffic-manager deployment? Its logs are in OpenSearch."
+
+expected_output:
+  - "Must identify that one traffic-manager pod hit a memory problem (OutOfMemory / heap exhausted)"
+  - "Must reference the error log evidence (memory usage high / OutOfMemory) rather than reporting all pods healthy"
+
+tags:
+  - logs
+  - kubernetes
+  - opensearch
+  - comparison
+  - mcp
+  - medium
+
+setup_timeout: 400
+
+before_test: |
+  source ../../shared/lvo/seed_tpstack_schema.sh
+  lvo_seed_schema "multipod" "applogs-bench" "flat" 1
+  echo "✅ Seeded multipod in FLAT schema into neutrally-named applogs-bench (+ index pattern)"
+
+after_test: |
+  kubectl exec -n tp-stack opensearch-cluster-master-0 -c opensearch -- sh -c \
+    'curl -sk -u admin:"$OPENSEARCH_INITIAL_ADMIN_PASSWORD" -X DELETE "https://localhost:9200/applogs-bench"' >/dev/null 2>&1 || true
