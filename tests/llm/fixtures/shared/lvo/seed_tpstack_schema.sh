@@ -54,14 +54,23 @@ PY
   rm -f "$bulk"
 
   if [ "$make_pattern" = "1" ]; then
-    # Create a Dashboards index pattern <index>* so TestPulsar discovers it. Anonymous
-    # read can't write saved objects, so use admin basic auth against the OSD API.
+    # Create a Dashboards index pattern <index>* so TestPulsar discovers it. It MUST live
+    # in the same workspace TestPulsar scopes its list_index_patterns/_find to, or the
+    # agent never sees it (a pattern created globally with no workspace is invisible to
+    # the workspace-scoped query). Discover the workspace id by name ("Observability
+    # Stack", created by the chart) and create the pattern via the /w/<id>/ API path.
+    # Anonymous read can't write saved objects, so use admin basic auth.
     kubectl exec -n "$TP_NS" deploy/"$TP_OSD" -- sh -c '
       P="${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-My_password_123!@#}"
-      curl -s -u admin:"$P" -X POST "http://localhost:5601/api/saved_objects/index-pattern/'"$index"'-pattern" \
+      WS=$(curl -s -u admin:"$P" -X POST "http://localhost:5601/api/workspaces/_list" \
+        -H "osd-xsrf: true" -H "Content-Type: application/json" -d "{}" \
+        | python3 -c "import sys,json; ws=json.load(sys.stdin).get(\"result\",{}).get(\"workspaces\",[]); print(next((w[\"id\"] for w in ws if \"bservability\" in w.get(\"name\",\"\")), ws[0][\"id\"] if ws else \"\"))")
+      [ -n "$WS" ] || { echo "❌ no workspace found for index-pattern"; exit 1; }
+      curl -s -u admin:"$P" -X POST "http://localhost:5601/w/$WS/api/saved_objects/index-pattern/'"$index"'-pattern" \
         -H "osd-xsrf: true" -H "Content-Type: application/json" \
         -d "{\"attributes\":{\"title\":\"'"$index"'*\",\"timeFieldName\":\"timestamp\"}}" \
-        >/dev/null 2>&1 && echo "✅ created index pattern '"$index"'*" || echo "(index-pattern create returned non-200; may already exist)"
+        >/dev/null 2>&1 && echo "✅ created index pattern '"$index"'* in workspace $WS" \
+        || echo "(index-pattern create returned non-200; may already exist)"
     '
   fi
 }
