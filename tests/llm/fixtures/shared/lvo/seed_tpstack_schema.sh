@@ -66,6 +66,11 @@ PY
         -H "osd-xsrf: true" -H "Content-Type: application/json" -d "{}" \
         | python3 -c "import sys,json; ws=json.load(sys.stdin).get(\"result\",{}).get(\"workspaces\",[]); print(next((w[\"id\"] for w in ws if \"bservability\" in w.get(\"name\",\"\")), ws[0][\"id\"] if ws else \"\"))")
       [ -n "$WS" ] || { echo "❌ no workspace found for index-pattern"; exit 1; }
+      # Scrub any stale copy first (a prior run may have died before after_test), so the
+      # create is clean and we never accumulate duplicate/empty patterns that mislead the
+      # agent. Both workspace-scoped and global, ignore failures.
+      curl -s -u admin:"$P" -X DELETE "http://localhost:5601/w/$WS/api/saved_objects/index-pattern/'"$index"'-pattern" -H "osd-xsrf: true" >/dev/null 2>&1
+      curl -s -u admin:"$P" -X DELETE "http://localhost:5601/api/saved_objects/index-pattern/'"$index"'-pattern" -H "osd-xsrf: true" >/dev/null 2>&1
       curl -s -u admin:"$P" -X POST "http://localhost:5601/w/$WS/api/saved_objects/index-pattern/'"$index"'-pattern" \
         -H "osd-xsrf: true" -H "Content-Type: application/json" \
         -d "{\"attributes\":{\"title\":\"'"$index"'*\",\"timeFieldName\":\"timestamp\"}}" \
@@ -73,4 +78,28 @@ PY
         || echo "(index-pattern create returned non-200; may already exist)"
     '
   fi
+}
+
+# Tear down a bench index AND its Dashboards index pattern from the shared tp-stack, so
+# a leftover empty pattern can't mislead a later MCP run's list_index_patterns (the same
+# stale-pattern artifact that caused the original 38% MCP result). Idempotent: safe to
+# call even if the index/pattern is already gone, or this run never created a pattern.
+# Call from after_test. Usage: lvo_teardown_tpstack <index>
+lvo_teardown_tpstack() {
+  local index="$1"
+  kubectl exec -n "$TP_NS" "$TP_POD" -c opensearch -- sh -c \
+    'curl -sk -u admin:"$OPENSEARCH_INITIAL_ADMIN_PASSWORD" -X DELETE "https://localhost:9200/'"$index"'"' \
+    >/dev/null 2>&1 || true
+  kubectl exec -n "$TP_NS" deploy/"$TP_OSD" -- sh -c '
+    P="${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-My_password_123!@#}"
+    WS=$(curl -s -u admin:"$P" -X POST "http://localhost:5601/api/workspaces/_list" \
+      -H "osd-xsrf: true" -H "Content-Type: application/json" -d "{}" \
+      | python3 -c "import sys,json; ws=json.load(sys.stdin).get(\"result\",{}).get(\"workspaces\",[]); print(next((w[\"id\"] for w in ws if \"bservability\" in w.get(\"name\",\"\")), ws[0][\"id\"] if ws else \"\"))" 2>/dev/null)
+    # Delete the pattern both workspace-scoped (where we create it) and globally (in case
+    # an earlier buggy run left a ws=None copy). Ignore failures.
+    [ -n "$WS" ] && curl -s -u admin:"$P" -X DELETE "http://localhost:5601/w/$WS/api/saved_objects/index-pattern/'"$index"'-pattern" -H "osd-xsrf: true" >/dev/null 2>&1
+    curl -s -u admin:"$P" -X DELETE "http://localhost:5601/api/saved_objects/index-pattern/'"$index"'-pattern" -H "osd-xsrf: true" >/dev/null 2>&1
+    true
+  ' >/dev/null 2>&1 || true
+  echo "🧹 tore down tp-stack index + pattern: '"$index"'"
 }

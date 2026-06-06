@@ -34,6 +34,9 @@ before_test: |
   echo "✅ Seeded multipod into shared tp-stack (logs-otel-v1-bench) for TestPulsar MCP"
 
 after_test: |
-  # Leave tp-stack data in place (shared, persistent). Drop just this index.
-  kubectl exec -n tp-stack opensearch-cluster-master-0 -c opensearch -- sh -c \
-    'curl -sk -u admin:"$OPENSEARCH_INITIAL_ADMIN_PASSWORD" -X DELETE "https://localhost:9200/logs-otel-v1-bench"' >/dev/null 2>&1 || true
+  # Drop this run's data index (and any pattern keyed to it) from the shared tp-stack,
+  # so a leftover empty index/pattern can't mislead a later MCP run. Idempotent; the
+  # pre-existing shared logs-otel-v1* pattern (which this case did not create) is untouched.
+  source ../../shared/lvo/seed_tpstack.sh
+  source ../../shared/lvo/seed_tpstack_schema.sh
+  lvo_teardown_tpstack "logs-otel-v1-bench"

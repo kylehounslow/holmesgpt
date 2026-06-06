@@ -27,5 +27,5 @@ before_test: |
   echo "✅ Seeded multipod in OTel-logs schema (body/severityText/@timestamp) into logs-otel-v1-bench"
 
 after_test: |
-  kubectl exec -n tp-stack opensearch-cluster-master-0 -c opensearch -- sh -c \
-    'curl -sk -u admin:"$OPENSEARCH_INITIAL_ADMIN_PASSWORD" -X DELETE "https://localhost:9200/logs-otel-v1-bench"' >/dev/null 2>&1 || true
+  source ../../shared/lvo/seed_tpstack_schema.sh
+  lvo_teardown_tpstack "logs-otel-v1-bench"
